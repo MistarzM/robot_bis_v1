@@ -7,16 +7,18 @@ int posBase = 2147;
 int posShoulder = 3547; 
 int posUpperarm = 1747; 
 int posElbow = 2147;    
-int posForearm = 1747;  
-int posWrist = 2147;    
-int posGripper = 2047;  
+int posForearm = 1547;  
+int posWrist = 2047;    
+int posGripper = 2847;  
 
 int stepSize = 100; 
 int moveSpeed = 200; 
 
-// --- SOFT LIMITS FOR SHOULDER ---
+// --- SOFT LIMITS ---
 int shoulderMax = 3847; 
 int shoulderMin = 1747; 
+int gripperMax = 3947; 
+int gripperMin = 2047; 
 
 // --- HARDWARE TRACKING ARRAY ---
 bool servoActive[8]; 
@@ -55,9 +57,9 @@ void goHome() {
   posShoulder = 3547; 
   posUpperarm = 1747; 
   posElbow = 2147; 
-  posForearm = 1747; 
-  posWrist = 2147; 
-  posGripper = 2047;
+  posForearm = 1547; 
+  posWrist = 2047; 
+  posGripper = 2847;
   
   Serial.println("--- EXECUTING SMART HOMING ---");
   
@@ -87,19 +89,19 @@ void goHome() {
   }
   
   if (servoActive[5]) {
-    Serial.println("Moving Forearm (ID 5) to 1747...");
+    Serial.println("Moving Forearm (ID 5) to 1547...");
     st.WritePosEx(5, posForearm, moveSpeed, 50); 
     delay(4000); 
   }
 
   if (servoActive[6]) {
-    Serial.println("Moving Wrist (ID 6) to 2147...");
+    Serial.println("Moving Wrist (ID 6) to 2047...");
     st.WritePosEx(6, posWrist, moveSpeed, 50); 
     delay(4000); 
   }
 
   if (servoActive[7]) {
-    Serial.println("Moving Gripper (ID 7) to 2047...");
+    Serial.println("Moving Gripper (ID 7) to 2847...");
     st.WritePosEx(7, posGripper, moveSpeed, 50); 
     delay(4000); 
   }
@@ -331,7 +333,7 @@ void loop() {
         // --- GRIPPER (ID 7) U/J ---
         case 'u': case 'U': {
           if (!servoActive[7]) { Serial.println("Gripper servo not active!"); break; }
-          if (posGripper + stepSize >= 4095) { posGripper = 4095; Serial.print("[ MAX LIMIT ] "); } 
+          if (posGripper + stepSize >= gripperMax) { posGripper = gripperMax; Serial.print("[ MAX LIMIT ] "); } 
           else posGripper += stepSize;
           
           st.WritePosEx(7, posGripper, moveSpeed, 50); 
@@ -341,7 +343,7 @@ void loop() {
         }
         case 'j': case 'J': {
           if (!servoActive[7]) { Serial.println("Gripper servo not active!"); break; }
-          if (posGripper - stepSize <= 0) { posGripper = 0; Serial.print("[ MIN LIMIT ] "); } 
+          if (posGripper - stepSize <= gripperMin) { posGripper = gripperMin; Serial.print("[ MIN LIMIT ] "); } 
           else posGripper -= stepSize;
           
           st.WritePosEx(7, posGripper, moveSpeed, 50); 
