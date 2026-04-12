@@ -1,19 +1,15 @@
 #include <SCServo.h>
 
-SMS_STS st; 
+SMS_STS st;
 
-// hardware tracking array
-bool servo_active[8]; 
+bool servo_active[8];
 String axis_names[8] = {
   "Base", "Shoulder L", "Shoulder R", "Upperarm", 
   "Elbow", "Forearm", "Wrist", "Gripper"
 };
 
-// hardware scan function
 void scan_hardware() {
-  Serial.println("\n==================================");
-  Serial.println("  SYSTEM BOOT: HARDWARE SCAN");
-  Serial.println("==================================");
+  Serial.println("[SYS] hardware discovery");
   
   for (int i = 0; i < 8; i++) {
     int check = st.ReadPos(i);
@@ -31,7 +27,6 @@ void scan_hardware() {
     }
     delay(50); 
   }
-  Serial.println("==================================\n");
 }
 
 void setup() {
@@ -39,21 +34,20 @@ void setup() {
   Serial1.begin(1000000, SERIAL_8N1, 18, 19); 
   st.pSerial = &Serial1;
 
-  delay(2000); 
-  scan_hardware(); 
-  Serial.println("ESP32 BRIDGE READY");
+  delay(2000);
+  scan_hardware();
+  Serial.println("[SYS] esp32 bridge ready");
 }
 
 void loop() {
   if (Serial.available() > 0) {
     String data = Serial.readStringUntil('\n');
-    data.trim(); 
+    data.trim();
 
-    if (data.length() == 0) return; 
+    if (data.length() == 0) return;
 
-    // command: stat 
-    if (data.equalsIgnoreCase("stat") || data.equalsIgnoreCase("stats")) {
-      Serial.println("=== HARDWARE STATS ===");
+    if (data.equalsIgnoreCase("stat")) {
+      Serial.println("[STAT] hardware telemetry");
       for (int i = 0; i < 8; i++) {
         if (!servo_active[i]) continue;
         
@@ -75,21 +69,21 @@ void loop() {
           Serial.print(curr); 
           Serial.println("mA");
         } else {
-          Serial.println("READ ERROR!");
+          Serial.println("[ERR] read error");
         }
       }
-      Serial.println("==========================");
+    } 
+    else if (data.equalsIgnoreCase("reset")) {
+      scan_hardware();
     }
-    // command: servo movemnt - format: id, pos
     else {
-      int comma_idx = data.indexOf(',');
-      if (comma_idx > 0) {
-        int id = data.substring(0, comma_idx).toInt();
-        int pos = data.substring(comma_idx + 1).toInt();
-
-        // safety limit check
+      int commaIdx = data.indexOf(',');
+      if (commaIdx > 0) {
+        int id = data.substring(0, commaIdx).toInt();
+        int pos = data.substring(commaIdx + 1).toInt();
+        
         if (pos >= 0 && pos <= 4095) {
-          st.WritePosEx(id, pos, 0, 0);
+          st.WritePosEx(id, pos, 0, 0); 
         }
       }
     }
