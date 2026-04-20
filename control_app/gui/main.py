@@ -1,5 +1,4 @@
 import os
-# KAGANIEC NA MACA: Mówimy Pygame, żeby nie dotykał interfejsu graficznego
 os.environ["SDL_VIDEODRIVER"] = "dummy" 
 
 import sys
@@ -7,17 +6,16 @@ import time
 import serial
 import pygame
 import math
+import numpy as np
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, 
                                QVBoxLayout, QHBoxLayout, QLabel, QGroupBox)
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 
 class ControllerWorker(QThread):
-    """
-    Background Thread: ONLY handles Serial communication, math, and homing.
-    """
-    status_signal = Signal(bool, bool) # Pad Connected, Serial Connected
-    telemetry_signal = Signal(list)    # Positions [0, 1, 3, 4, 5, 6, 7]
+    status_signal = Signal(bool, bool)
+    telemetry_signal = Signal(list)
     coords_signal = Signal(list)
+    target_signal = Signal(list, str)
 
     def __init__(self):
         super().__init__()
@@ -25,45 +23,66 @@ class ControllerWorker(QThread):
         self.PORT = '/dev/cu.usbserial-0001' 
         self.BAUD = 115200
         self.ser = None
-        self.speed_multiplier = 6
         
+        # --- BARDZO ZWOLNIONE PRĘDKOŚCI ---
+        self.speed_linear = 2.0    # Bardzo powolny ruch lewą gałką
+        self.speed_angular = 0.02  # Bardzo powolny obrót prawą gałką
+        
+        self.current_mode = "XYZ"
+        self.ui_update_counter = 0 
+        
+        # Arm dimensions (mm)
+        self.a1 = 112.5
+        self.a2 = 75.0
+        self.a3 = 183.0
+        self.a4 = 16.0
+        self.a5 = 150.0
+        self.a6 = 199.5
+        
+        self.max_reach = self.a2 + self.a3 + self.a5 + self.a6 - 5.0
+
+        # Physical Home Position (L-Shape) - TWOJE IDEALNE USTAWIENIE
         self.home_pos = {
-            0: 2147, 1: 3547, 3: 1747, 
-            4: 2147, 5: 1547, 6: 2047, 7: 2847
+            0: 2047, 1: 3147, 3: 1847, 
+            4: 2147, 5: 2247, 6: 2047, 7: 2847
         }
         self.pos = self.home_pos.copy()
         
-        # State dictionary updated safely by the Main Thread
+        # ZERO CALIBRATION
+        self.zero_pos = {
+            0: 2047,                                  
+            1: 3147 - int(90.0 / 0.088),              
+            3: 1847,                                  
+            4: 2147,                                  
+            5: 2247,                                  
+            6: 2047,                                  
+            7: 2847                                   
+        }
+        
+        _, initial_ee_pose = self.get_kinematics(self.home_pos)
+        self.target_pose = list(initial_ee_pose)
+        print(f"[INIT] Initial target set to: {self.target_pose}")
+        
         self.pad_state = {
-            'connected': False, 'rx': 0.0, 'ry': 0.0,
+            'connected': False, 
+            'lx': 0.0, 'ly': 0.0, 'rx': 0.0, 'ry': 0.0,
             'btn_cross': False, 'btn_circle': False,
             'dpad_up': False, 'dpad_down': False, 'dpad_left': False, 'dpad_right': False,
             'l1': False, 'r1': False, 'l2': 0.0, 'r2': 0.0,
             'btn_triangle': False, 'btn_square': False
         }
         self.is_homing = False
-        
-        # ROBOT DIMENSIONS (mm) - Wymiary z suwmiarki
-        self.a1 = 112.5  # Base height
-        self.a2 = 75.0   # Base offset (Przesunięcie w XY)
-        self.a3 = 183.0  # Upper arm (Długość głównego ramienia)
-        self.a4 = 16.0   # Elbow offset (Uskok łokcia na łączeniu czerwone-zielone)
-        self.a5 = 150.0  # Forearm (Przedramię)
-        self.a6 = 199.5  # Wrist/Gripper (Długość do punktu chwytu)
 
-    # --- MATEMATYKA KINEMATYKI (DH MATRICES) ---
-    def raw_to_rad(self, raw_val, center=2048):
-        """Converts servo value (0-4095) to radians. 2048 is assumed absolute 0 degrees."""
-        return math.radians((raw_val - center) * 0.088)
+    def raw_to_rad(self, raw_val, servo_id):
+        return math.radians((raw_val - self.zero_pos[servo_id]) * 0.088)
+
+    def rad_to_raw(self, rad, servo_id):
+        raw = int(self.zero_pos[servo_id] + (math.degrees(rad) / 0.088))
+        return np.clip(raw, 0, 4095)
 
     def dh_matrix(self, a, alpha, d, theta):
-        """Creates a 4x4 Denavit-Hartenberg transformation matrix."""
-        ct = math.cos(theta)
-        st = math.sin(theta)
-        ca = math.cos(alpha)
-        sa = math.sin(alpha)
-        
-        # Standard DH konwencja
+        ct, st = math.cos(theta), math.sin(theta)
+        ca, sa = math.cos(alpha), math.sin(alpha)
         return [
             [ct, -st*ca,  st*sa, a*ct],
             [st,  ct*ca, -ct*sa, a*st],
@@ -72,7 +91,6 @@ class ControllerWorker(QThread):
         ]
 
     def mult_matrix(self, m1, m2):
-        """Multiplies two 4x4 matrices mathematically perfectly."""
         res = [[0]*4 for _ in range(4)]
         for i in range(4):
             for j in range(4):
@@ -80,40 +98,21 @@ class ControllerWorker(QThread):
                              m1[i][2]*m2[2][j] + m1[i][3]*m2[3][j])
         return res
 
-    def calculate_fk(self):
-        """Calculates Forward Kinematics based on precise DH parameters and Matrix Math."""
-        # 1. Konwersja danych z serw na radiany (0-4095 -> Radiany)
-        # UWAGA: Jeżeli w pozycji "0" ramię sprzętowo nie jest wyprostowane prosto, 
-        # może być konieczne dodanie offsetu, np. t2 = self.raw_to_rad(...) - math.pi/2
-        
-        t1 = self.raw_to_rad(self.pos[0]) # ID 0: Base Yaw (Obrót bazy)
-        t2 = self.raw_to_rad(self.pos[1]) # ID 1: Shoulder Pitch (Bark)
-        t3 = self.raw_to_rad(self.pos[3]) # ID 3: Elbow Pitch (Łokieć)
-        t4 = self.raw_to_rad(self.pos[4]) # ID 4: Forearm Roll (Obrót przedramieniem)
-        t5 = self.raw_to_rad(self.pos[5]) # ID 5: Wrist Pitch (Nadgarstek góra/dół)
-        t6 = self.raw_to_rad(self.pos[6]) # ID 6: Wrist Roll (Obrót nadgarstka)
+    def get_kinematics(self, pos_dict):
+        t1 = self.raw_to_rad(pos_dict[0], 0)
+        t2 = self.raw_to_rad(pos_dict[1], 1)
+        t3 = self.raw_to_rad(pos_dict[3], 3)
+        t4 = self.raw_to_rad(pos_dict[4], 4)
+        t5 = self.raw_to_rad(pos_dict[5], 5)
+        t6 = self.raw_to_rad(pos_dict[6], 6)
 
-        # 2. Generowanie macierzy DH dla każdego segmentu. Parametry: (a, alpha, d, theta)
-        
-        # BAZA -> BARK (Wysokość a1, przesunięcie w bok a2, skręt osi o 90 stopni)
         T1 = self.dh_matrix(self.a2, math.pi/2, self.a1, t1)
-        
-        # BARK -> ŁOKIEĆ (Wzdłuż głównego ramienia o długości a3)
         T2 = self.dh_matrix(self.a3, 0, 0, t2)
-        
-        # ŁOKIEĆ -> PRZEDRAMIĘ (Uskok a4 na łokciu, zmiana osi obrotu na wzdłużną)
         T3 = self.dh_matrix(self.a4, math.pi/2, 0, t3)
-        
-        # PRZEDRAMIĘ -> NADGARSTEK (Odległość a5, przejście z osi Roll na Pitch)
         T4 = self.dh_matrix(0, -math.pi/2, self.a5, t4)
-        
-        # NADGARSTEK (Pitch) -> NADGARSTEK (Roll) (Brak dystansu fizycznego na samym stawie)
         T5 = self.dh_matrix(0, math.pi/2, 0, t5)
-        
-        # NADGARSTEK (Roll) -> CHWYTAK (Odległość a6 do punktu końcowego - End Effector)
         T6 = self.dh_matrix(0, 0, self.a6, t6)
 
-        # 3. Kaskadowe mnożenie macierzy (Łańcuch kinematyczny)
         T01 = T1
         T02 = self.mult_matrix(T01, T2)
         T03 = self.mult_matrix(T02, T3)
@@ -121,107 +120,220 @@ class ControllerWorker(QThread):
         T05 = self.mult_matrix(T04, T5)
         T06 = self.mult_matrix(T05, T6)
 
-        # 4. Wyciąganie wektorów pozycji (kolumna przesunięć z macierzy homogenicznej)
-        # Zgodnie z interfejsem UI potrzebujemy: Shoulder, Elbow, Wrist, End Effector
-        shoulder_xyz = [round(T01[0][3], 1), round(T01[1][3], 1), round(T01[2][3], 1)]
-        elbow_xyz    = [round(T02[0][3], 1), round(T02[1][3], 1), round(T02[2][3], 1)]
-        wrist_xyz    = [round(T04[0][3], 1), round(T04[1][3], 1), round(T04[2][3], 1)]
-        ee_xyz       = [round(T06[0][3], 1), round(T06[1][3], 1), round(T06[2][3], 1)]
+        shoulder = [round(T01[0][3], 1), round(T01[1][3], 1), round(T01[2][3], 1)]
+        elbow    = [round(T02[0][3], 1), round(T02[1][3], 1), round(T02[2][3], 1)]
+        wrist    = [round(T04[0][3], 1), round(T04[1][3], 1), round(T04[2][3], 1)]
+        ee_pos   = [round(T06[0][3], 1), round(T06[1][3], 1), round(T06[2][3], 1)]
 
-        return [shoulder_xyz, elbow_xyz, wrist_xyz, ee_xyz]
+        # --- NOWOŚĆ: SFERYCZNE WYCIĄGANIE KĄTÓW (Z-Y-Z Euler) ---
+        # Dzięki temu ramię inicjalizuje się w trybie idealnym do rotacji samego chwytaka
+        cb = np.clip(T06[2][2], -1.0, 1.0)
+        pitch = math.acos(cb)
+        
+        if abs(math.sin(pitch)) > 0.001:
+            yaw = math.atan2(T06[1][2], T06[0][2])
+            roll = math.atan2(T06[2][1], -T06[2][0])
+        else:
+            yaw = math.atan2(T06[1][0], T06[0][0])
+            roll = 0.0
+        
+        ee_full_pose = [ee_pos[0], ee_pos[1], ee_pos[2], yaw, pitch, roll]
+        return [shoulder, elbow, wrist, ee_pos], ee_full_pose
 
-    # --- KOMUNIKACJA I STEROWANIE ---
+    def update_ik_analytical(self):
+        """O(1) Perfect Analytical Solver with Z-Y-Z Spherical Wrist"""
+        
+        yaw, pitch, roll = self.target_pose[3], self.target_pose[4], self.target_pose[5]
+        
+        cy, sy = math.cos(yaw), math.sin(yaw)
+        cp, sp = math.cos(pitch), math.sin(pitch)
+        cr, sr = math.cos(roll), math.sin(roll)
+
+        # --- NOWOŚĆ: MACIERZ Z-Y-Z --- 
+        # Zmiana 'roll' obraca teraz chwytak WOKÓŁ JEGO WŁASNEJ OSI!
+        R06 = np.array([
+            [cy*cp*cr - sy*sr, -cy*cp*sr - sy*cr, cy*sp],
+            [sy*cp*cr + cy*sr, -sy*cp*sr + cy*cr, sy*sp],
+            [-sp*cr,            sp*sr,            cp]
+        ])
+
+        EE_pos = np.array([self.target_pose[0], self.target_pose[1], self.target_pose[2]])
+        Z6_axis = R06[:, 2] 
+        WC = EE_pos - Z6_axis * self.a6
+
+        t1 = math.atan2(WC[1], WC[0])
+
+        r_plan = math.sqrt(WC[0]**2 + WC[1]**2) - self.a2 
+        z_plan = WC[2] - self.a1 
+        
+        L = math.sqrt(r_plan**2 + z_plan**2) 
+        L1 = self.a3 
+        L2 = math.sqrt(self.a4**2 + self.a5**2) 
+        
+        if L > L1 + L2: 
+            L = L1 + L2 - 0.001 
+            
+        cos_q3 = (L**2 - L1**2 - L2**2) / (2 * L1 * L2)
+        cos_q3 = np.clip(cos_q3, -1.0, 1.0)
+        q3_inner = math.acos(cos_q3)
+        
+        gamma = math.atan2(self.a4, self.a5) 
+        t3 = math.pi/2 - q3_inner - gamma 
+
+        cos_q2 = (L**2 + L1**2 - L2**2) / (2 * L * L1)
+        cos_q2 = np.clip(cos_q2, -1.0, 1.0)
+        q2_inner = math.acos(cos_q2)
+        
+        alpha = math.atan2(z_plan, r_plan)
+        t2 = alpha + q2_inner 
+
+        T1_mat = self.dh_matrix(self.a2, math.pi/2, self.a1, t1)
+        T2_mat = self.dh_matrix(self.a3, 0, 0, t2)
+        T3_mat = self.dh_matrix(self.a4, math.pi/2, 0, t3)
+        
+        T03 = self.mult_matrix(T1_mat, self.mult_matrix(T2_mat, T3_mat))
+        R03 = np.array([
+            [T03[0][0], T03[0][1], T03[0][2]],
+            [T03[1][0], T03[1][1], T03[1][2]],
+            [T03[2][0], T03[2][1], T03[2][2]]
+        ])
+        
+        R36 = np.dot(R03.T, R06)
+        
+        current_t5 = self.raw_to_rad(self.pos[5], 5)
+        r_val = math.sqrt(R36[0,2]**2 + R36[1,2]**2)
+        
+        t5_1 = math.atan2(r_val, R36[2,2])
+        t5_2 = math.atan2(-r_val, R36[2,2])
+        
+        if abs(t5_1 - current_t5) < abs(t5_2 - current_t5):
+            t5 = t5_1
+            sign = 1.0
+        else:
+            t5 = t5_2
+            sign = -1.0
+        
+        if abs(math.sin(t5)) > 0.001:
+            t4 = math.atan2(R36[1,2] * sign, R36[0,2] * sign)
+            t6 = math.atan2(R36[2,1] * sign, -R36[2,0] * sign)
+        else:
+            t4 = self.raw_to_rad(self.pos[4], 4) 
+            t6 = math.atan2(-R36[0,1], R36[0,0]) - t4
+
+        target_raw = {
+            0: self.rad_to_raw(t1, 0),
+            1: self.rad_to_raw(t2, 1),
+            3: self.rad_to_raw(t3, 3),
+            4: self.rad_to_raw(t4, 4),
+            5: self.rad_to_raw(t5, 5),
+            6: self.rad_to_raw(t6, 6)
+        }
+
+        # --- BARDZO CIĘŻKI KAGANIEC (MAX 4 JEDNOSTKI NA KLATKĘ) ---
+        max_step = 4 
+        
+        for servo_id in [0, 1, 3, 4, 5, 6]:
+            diff = target_raw[servo_id] - self.pos[servo_id]
+            step = np.clip(diff, -max_step, max_step)
+            self.pos[servo_id] += step
+
     def update_pad_state(self, state_dict):
         self.pad_state = state_dict
 
-    def send_cmd(self, servo_id, position):
-        if self.ser and self.ser.is_open:
-            position = max(0, min(4095, int(position)))
-            self.ser.write(f"{servo_id},{position}\n".encode('utf-8'))
-
     def run(self):
-        print(f"[INFO] connecting to esp32 on {self.PORT}...")
+        print(f"[INFO] Connecting to ESP32 on {self.PORT}...")
         try:
             self.ser = serial.Serial(self.PORT, self.BAUD, timeout=0.1)
             time.sleep(2)
-            print("[SUCC] esp32: connected successfully")
             serial_ok = True
+            print("[SUCC] ESP32 Connected successfully")
         except Exception as e:
-            print(f"[EXCT] Serial Error: {e}")
+            print(f"[ERR] Serial Error: {e}")
             serial_ok = False
 
         while self.is_running:
-            self.status_signal.emit(self.pad_state['connected'], serial_ok)
+            self.status_signal.emit(self.pad_state.get('connected', False), serial_ok)
             
-            current_telemetry = [self.pos[0], self.pos[1], self.pos[3], 
-                                 self.pos[4], self.pos[5], self.pos[6], self.pos[7]]
-            self.telemetry_signal.emit(current_telemetry)
+            if self.pad_state.get('connected', False) and not self.is_homing:
+                
+                if self.pad_state.get('btn_square', False): self.current_mode = "XYZ"
+                if self.pad_state.get('btn_triangle', False): self.current_mode = "ORIENTATION"
+                if self.pad_state.get('btn_circle', False): self.current_mode = "DRIVING"
+                if self.pad_state.get('btn_cross', False): self.current_mode = "AUTONOMOUS"
 
-            if self.ser and self.ser.in_waiting > 0:
-                try:
-                    line = self.ser.readline().decode('utf-8').strip()
-                    if line: print(f"[ESP32] {line}")
-                except: pass
+                if self.current_mode == "XYZ":
+                    self.target_pose[0] -= self.pad_state.get('ly', 0) * self.speed_linear
+                    self.target_pose[1] += self.pad_state.get('lx', 0) * self.speed_linear
+                    self.target_pose[2] -= self.pad_state.get('ry', 0) * self.speed_linear
 
-            if not self.pad_state['connected'] or self.is_homing:
-                time.sleep(0.02)
-                continue
+                    dist_from_base = math.sqrt(self.target_pose[0]**2 + self.target_pose[1]**2 + self.target_pose[2]**2)
+                    if dist_from_base > self.max_reach:
+                        scale = self.max_reach / dist_from_base
+                        self.target_pose[0] *= scale
+                        self.target_pose[1] *= scale
+                        self.target_pose[2] *= scale
 
-            self.pos[0] += self.pad_state['rx'] * self.speed_multiplier
-            self.pos[1] -= self.pad_state['ry'] * self.speed_multiplier 
+                elif self.current_mode == "ORIENTATION":
+                    self.target_pose[3] += self.pad_state.get('lx', 0) * self.speed_angular
+                    self.target_pose[4] -= self.pad_state.get('ly', 0) * self.speed_angular
+                    self.target_pose[5] += self.pad_state.get('rx', 0) * self.speed_angular
 
-            if self.pad_state['btn_cross']: self.pos[3] += self.speed_multiplier
-            if self.pad_state['btn_circle']: self.pos[3] -= self.speed_multiplier
+                grip_speed = 5
+                if self.pad_state.get('l2', 0) > 0.05: self.pos[7] -= (self.pad_state.get('l2', 0) * grip_speed)
+                if self.pad_state.get('r2', 0) > 0.05: self.pos[7] += (self.pad_state.get('r2', 0) * grip_speed)
+                self.pos[7] = max(0, min(4095, self.pos[7]))
 
-            if self.pad_state['dpad_up']: self.pos[5] += self.speed_multiplier
-            if self.pad_state['dpad_down']: self.pos[5] -= self.speed_multiplier
-            if self.pad_state['dpad_left']: self.pos[4] -= self.speed_multiplier
-            if self.pad_state['dpad_right']: self.pos[4] += self.speed_multiplier
+            if not self.is_homing and self.current_mode in ["XYZ", "ORIENTATION"]:
+                self.update_ik_analytical()
 
-            if self.pad_state['l1']: self.pos[6] -= self.speed_multiplier
-            if self.pad_state['r1']: self.pos[6] += self.speed_multiplier
+            self.ui_update_counter += 1
+            if self.ui_update_counter % 5 == 0: 
+                coords, ee_full = self.get_kinematics(self.pos)
+                self.coords_signal.emit(coords)
+                self.target_signal.emit(self.target_pose, self.current_mode)
+                
+                current_telemetry = [self.pos[0], self.pos[1], self.pos[3], 
+                                     self.pos[4], self.pos[5], self.pos[6], self.pos[7]]
+                self.telemetry_signal.emit(current_telemetry)
 
-            if self.pad_state['l2'] > 0.05: self.pos[7] -= (self.pad_state['l2'] * self.speed_multiplier)
-            if self.pad_state['r2'] > 0.05: self.pos[7] += (self.pad_state['r2'] * self.speed_multiplier)
-            
-            # WYSYŁANIE KOORDYNATÓW 3D DO GUI (Poprawione wcięcia)
-            coords = self.calculate_fk()
-            self.coords_signal.emit(coords)
-            
-            if self.pad_state['btn_triangle']:
+            if self.pad_state.get('connected', False) and self.pad_state.get('dpad_up', False) and not self.is_homing:
                 self.is_homing = True
-                print("\n[INFO] initiating hardware scan and smart homing...")
-                self.ser.write(b"reset\n")
+                print("\n[INFO] Initiating smart homing sequence...")
+                if self.ser and self.ser.is_open:
+                    self.ser.write(b"reset\n")
                 time.sleep(1.0) 
-
+                
+                _, home_ee_pose = self.get_kinematics(self.home_pos)
+                self.target_pose = list(home_ee_pose)
+                
                 homing_sequence = [0, 1, 3, 4, 5, 6, 7]
                 for servo_id in homing_sequence:
                     target = self.home_pos[servo_id]
                     self.pos[servo_id] = target 
-                    if servo_id == 1:
-                        self.send_cmd(1, target)
-                        self.send_cmd(2, 4095 - target) 
-                    else:
-                        self.send_cmd(servo_id, target)
-                    print(f"[INFO] homing joint id {servo_id}...")
+                    
+                    if self.ser and self.ser.is_open:
+                        if servo_id == 1:
+                            cmd = f"1,{int(target)}\n2,{4095 - int(target)}\n"
+                            self.ser.write(cmd.encode('utf-8'))
+                        else:
+                            cmd = f"{servo_id},{int(target)}\n"
+                            self.ser.write(cmd.encode('utf-8'))
                     time.sleep(0.5) 
-                print("[SUCC] homing sequence complete\n")
-                time.sleep(0.5)
                 self.is_homing = False
+                print("[SUCC] Homing complete.")
 
-            if self.pad_state['btn_square']:
-                print("\n[INFO] requesting telemetry from esp32")
-                self.ser.write(b"stat\n")
-                time.sleep(0.5)
-
-            self.send_cmd(0, self.pos[0])
-            self.send_cmd(1, self.pos[1])
-            self.send_cmd(2, 4095 - self.pos[1])
-            self.send_cmd(3, self.pos[3])
-            self.send_cmd(4, self.pos[4])
-            self.send_cmd(5, self.pos[5])
-            self.send_cmd(6, self.pos[6])
-            self.send_cmd(7, self.pos[7])
+            if self.ser and self.ser.is_open and not self.is_homing:
+                cmd_batch = (
+                    f"0,{int(self.pos[0])}\n"
+                    f"1,{int(self.pos[1])}\n"
+                    f"2,{4095 - int(self.pos[1])}\n"
+                    f"3,{int(self.pos[3])}\n"
+                    f"4,{int(self.pos[4])}\n"
+                    f"5,{int(self.pos[5])}\n"
+                    f"6,{int(self.pos[6])}\n"
+                    f"7,{int(self.pos[7])}\n"
+                )
+                self.ser.write(cmd_batch.encode('utf-8'))
 
             time.sleep(0.02)
 
@@ -230,11 +342,12 @@ class ControllerWorker(QThread):
         if self.ser and self.ser.is_open: self.ser.close()
         self.wait()
 
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("UGV02 - Command Center")
-        self.setFixedSize(800, 750) 
+        self.setWindowTitle("UGV02 - 6DOF Command Center")
+        self.setFixedSize(880, 800) 
         self.setStyleSheet("font-size: 14px;")
 
         pygame.init()
@@ -246,20 +359,32 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
         self.main_layout = QVBoxLayout(central_widget)
 
+        self._build_mode_panel()
         self._build_status_panel()
-        self._build_telemetry_panel()
         self._build_spatial_panel() 
+        self._build_telemetry_panel()
         self.main_layout.addStretch()
 
         self.worker = ControllerWorker()
         self.worker.status_signal.connect(self.update_statuses)
         self.worker.telemetry_signal.connect(self.update_telemetry)
         self.worker.coords_signal.connect(self.update_coords) 
+        self.worker.target_signal.connect(self.update_target_ui)
         self.worker.start()
 
         self.pad_timer = QTimer()
         self.pad_timer.timeout.connect(self.read_gamepad)
         self.pad_timer.start(20)
+
+    def _build_mode_panel(self):
+        mode_group = QGroupBox("Active Control Mode")
+        mode_layout = QVBoxLayout()
+        self.lbl_mode = QLabel("LOADING...")
+        self.lbl_mode.setAlignment(Qt.AlignCenter)
+        self.lbl_mode.setStyleSheet("font-size: 24px; font-weight: bold; padding: 10px; border-radius: 5px;")
+        mode_layout.addWidget(self.lbl_mode)
+        mode_group.setLayout(mode_layout)
+        self.main_layout.addWidget(mode_group)
 
     def _build_status_panel(self):
         status_group = QGroupBox("System Status")
@@ -273,32 +398,16 @@ class MainWindow(QMainWindow):
         status_group.setLayout(status_layout)
         self.main_layout.addWidget(status_group)
 
-    def _build_telemetry_panel(self):
-        telemetry_group = QGroupBox("Arm Telemetry (Raw Values 0-4095)")
-        telemetry_layout = QVBoxLayout()
-        self.servo_labels = []
-        servo_names = ["Base (0)", "Shoulder L (1)", "Upperarm (3)", 
-                       "Elbow (4)", "Forearm (5)", "Wrist (6)", "Gripper (7)"]
-        for name in servo_names:
-            row_layout = QHBoxLayout()
-            name_label = QLabel(f"{name}:")
-            name_label.setFixedWidth(120)
-            value_label = QLabel("0")
-            value_label.setStyleSheet("font-family: monospace; font-weight: bold;")
-            row_layout.addWidget(name_label)
-            row_layout.addWidget(value_label)
-            row_layout.addStretch()
-            telemetry_layout.addLayout(row_layout)
-            self.servo_labels.append(value_label)
-        telemetry_group.setLayout(telemetry_layout)
-        self.main_layout.addWidget(telemetry_group)
-
     def _build_spatial_panel(self):
-        spatial_group = QGroupBox("Spatial Positioning (X, Y, Z in mm)")
+        spatial_group = QGroupBox("Task Space & IK Target")
         spatial_layout = QVBoxLayout()
         self.coord_labels = {}
         
-        points = ["Shoulder", "Elbow", "Wrist", "Chwytak (EE)"]
+        self.lbl_target = QLabel("TARGET: X: 0.0 | Y: 0.0 | Z: 0.0 | Yaw: 0.00 | Pitch: 0.00 | Roll: 0.00")
+        self.lbl_target.setStyleSheet("font-family: monospace; color: #ff5555; font-weight: bold; background: #222; padding: 5px;")
+        spatial_layout.addWidget(self.lbl_target)
+        
+        points = ["Shoulder", "Elbow", "Wrist", "Gripper (EE)"]
         for point in points:
             row = QHBoxLayout()
             name = QLabel(f"{point}:")
@@ -313,6 +422,26 @@ class MainWindow(QMainWindow):
             
         spatial_group.setLayout(spatial_layout)
         self.main_layout.addWidget(spatial_group)
+        
+    def _build_telemetry_panel(self):
+        telemetry_group = QGroupBox("Joint Space (Raw Values 0-4095)")
+        telemetry_layout = QVBoxLayout()
+        self.servo_labels = []
+        servo_names = ["Base (0)", "Shoulder L (1)", "Upperarm (3)", 
+                       "Forearm (4)", "Wrist Pitch (5)", "Wrist Roll (6)", "Gripper (7)"]
+        for name in servo_names:
+            row_layout = QHBoxLayout()
+            name_label = QLabel(f"{name}:")
+            name_label.setFixedWidth(120)
+            value_label = QLabel("0")
+            value_label.setStyleSheet("font-family: monospace; font-weight: bold;")
+            row_layout.addWidget(name_label)
+            row_layout.addWidget(value_label)
+            row_layout.addStretch()
+            telemetry_layout.addLayout(row_layout)
+            self.servo_labels.append(value_label)
+        telemetry_group.setLayout(telemetry_layout)
+        self.main_layout.addWidget(telemetry_group)
 
     def apply_deadzone(self, value, deadzone=0.15):
         return 0.0 if abs(value) < deadzone else value
@@ -322,57 +451,99 @@ class MainWindow(QMainWindow):
 
     def read_gamepad(self):
         pygame.event.pump()
+        
         if not self.pad_connected:
             if pygame.joystick.get_count() > 0:
                 self.joystick = pygame.joystick.Joystick(0)
                 self.joystick.init()
                 self.pad_connected = True
-                print(f"[SUCC] gamepad connected: {self.joystick.get_name()}")
+                print(f"[SUCC] Gamepad connected: {self.joystick.get_name()}")
             else:
-                self.worker.update_pad_state({'connected': False})
+                empty_state = {
+                    'connected': False, 
+                    'lx': 0.0, 'ly': 0.0, 'rx': 0.0, 'ry': 0.0,
+                    'btn_cross': False, 'btn_circle': False, 'btn_square': False, 'btn_triangle': False,
+                    'dpad_up': False, 'dpad_down': False, 'dpad_left': False, 'dpad_right': False,
+                    'l1': False, 'r1': False, 'l2': 0.0, 'r2': 0.0
+                }
+                self.worker.update_pad_state(empty_state)
                 return
 
         try:
+            def safe_axis(axis_id):
+                if self.joystick and axis_id < self.joystick.get_numaxes():
+                    return self.joystick.get_axis(axis_id)
+                return 0.0
+                
+            def safe_btn(btn_id):
+                if self.joystick and btn_id < self.joystick.get_numbuttons():
+                    return self.joystick.get_button(btn_id)
+                return False
+
+            dpad_up, dpad_down, dpad_left, dpad_right = False, False, False, False
+            if self.joystick.get_numhats() > 0:
+                hx, hy = self.joystick.get_hat(0)
+                if hy == 1: dpad_up = True
+                if hy == -1: dpad_down = True
+                if hx == -1: dpad_left = True
+                if hx == 1: dpad_right = True
+            else:
+                dpad_up = safe_btn(11)
+                dpad_down = safe_btn(12)
+                dpad_left = safe_btn(13)
+                dpad_right = safe_btn(14)
+
             state = {
                 'connected': True,
-                'rx': self.apply_deadzone(self.joystick.get_axis(2)),
-                'ry': self.apply_deadzone(self.joystick.get_axis(3)),
-                'btn_cross': self.joystick.get_button(0),
-                'btn_circle': self.joystick.get_button(1),
-                'dpad_up': self.joystick.get_button(11),
-                'dpad_down': self.joystick.get_button(12),
-                'dpad_left': self.joystick.get_button(13),
-                'dpad_right': self.joystick.get_button(14),
-                'l1': self.joystick.get_button(9),
-                'r1': self.joystick.get_button(10),
-                'l2': self.normalize_trigger(self.joystick.get_axis(4)),
-                'r2': self.normalize_trigger(self.joystick.get_axis(5)),
-                'btn_triangle': self.joystick.get_button(3),
-                'btn_square': self.joystick.get_button(2)
+                'lx': self.apply_deadzone(safe_axis(0)), 
+                'ly': self.apply_deadzone(safe_axis(1)),
+                'rx': self.apply_deadzone(safe_axis(2)),
+                'ry': self.apply_deadzone(safe_axis(3)),
+                
+                'btn_cross': safe_btn(0),
+                'btn_circle': safe_btn(1),
+                'btn_square': safe_btn(2),
+                'btn_triangle': safe_btn(3),
+                
+                'dpad_up': dpad_up,
+                'dpad_down': dpad_down,
+                'dpad_left': dpad_left,
+                'dpad_right': dpad_right,
+                
+                'l1': safe_btn(9),
+                'r1': safe_btn(10),
+                
+                'l2': self.normalize_trigger(safe_axis(4)),
+                'r2': self.normalize_trigger(safe_axis(5)),
             }
             self.worker.update_pad_state(state)
-        except pygame.error:
-            print("[ERR] Gamepad disconnected!")
+            
+        except Exception as e:
+            print(f"[ERR] Connection lost during read: {e}")
             self.pad_connected = False
             self.joystick = None
 
     def update_statuses(self, pad_ok, serial_ok):
-        if pad_ok:
-            self.lbl_gamepad.setText("Gamepad: CONNECTED")
-            self.lbl_gamepad.setStyleSheet("color: green; font-weight: bold;")
-        else:
-            self.lbl_gamepad.setText("Gamepad: DISCONNECTED")
-            self.lbl_gamepad.setStyleSheet("color: red; font-weight: bold;")
-            
-        if serial_ok:
-            self.lbl_robot.setText("ESP32 Serial: ACTIVE")
-            self.lbl_robot.setStyleSheet("color: green; font-weight: bold;")
-        else:
-            self.lbl_robot.setText("ESP32 Serial: WAITING...")
-            self.lbl_robot.setStyleSheet("color: orange; font-weight: bold;")
+        self.lbl_gamepad.setText("Gamepad: CONNECTED" if pad_ok else "Gamepad: DISCONNECTED")
+        self.lbl_gamepad.setStyleSheet(f"color: {'green' if pad_ok else 'red'}; font-weight: bold;")
+        self.lbl_robot.setText("ESP32 Serial: ACTIVE" if serial_ok else "ESP32 Serial: WAITING...")
+        self.lbl_robot.setStyleSheet(f"color: {'green' if serial_ok else 'orange'}; font-weight: bold;")
+
+    def update_target_ui(self, t, mode):
+        colors = {
+            "XYZ": ("#204a87", "#729fcf"),         
+            "ORIENTATION": ("#8f5902", "#fce94f"), 
+            "DRIVING": ("#a40000", "#ef2929"),     
+            "AUTONOMOUS": ("#4e9a06", "#8ae234")   
+        }
+        bg, fg = colors.get(mode, ("#555", "#fff"))
+        self.lbl_mode.setText(f"[{mode}]")
+        self.lbl_mode.setStyleSheet(f"font-size: 24px; font-weight: bold; padding: 10px; border-radius: 5px; background-color: {bg}; color: {fg};")
+        
+        self.lbl_target.setText(f"TARGET => X:{t[0]:.0f} | Y:{t[1]:.0f} | Z:{t[2]:.0f} | Yaw:{t[3]:.2f} | Pitch:{t[4]:.2f} | Roll:{t[5]:.2f}")
 
     def update_coords(self, coords_list):
-        points = ["Shoulder", "Elbow", "Wrist", "Chwytak (EE)"]
+        points = ["Shoulder", "Elbow", "Wrist", "Gripper (EE)"]
         for i, point in enumerate(points):
             c = coords_list[i]
             self.coord_labels[point].setText(f"X: {c[0]:>6} | Y: {c[1]:>6} | Z: {c[2]:>6}")
