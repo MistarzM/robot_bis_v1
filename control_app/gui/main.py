@@ -1,4 +1,5 @@
 import os
+# MAC OS FIX: Tell Pygame not to touch the graphical interface
 os.environ["SDL_VIDEODRIVER"] = "dummy" 
 
 import sys
@@ -24,14 +25,15 @@ class ControllerWorker(QThread):
         self.BAUD = 115200
         self.ser = None
         
-        # --- BARDZO ZWOLNIONE PRĘDKOŚCI ---
-        self.speed_linear = 2.0    # Bardzo powolny ruch lewą gałką
-        self.speed_angular = 0.02  # Bardzo powolny obrót prawą gałką
+        # --- ZWOLNIONE, PRECYZYJNE PRĘDKOŚCI ---
+        self.speed_linear = 2.0    
+        self.speed_angular = 0.02  
         
         self.current_mode = "XYZ"
         self.ui_update_counter = 0 
+        self.stat_btn_pressed = False
         
-        # Arm dimensions (mm)
+        # Wymiary ramienia (mm)
         self.a1 = 112.5
         self.a2 = 75.0
         self.a3 = 183.0
@@ -41,14 +43,14 @@ class ControllerWorker(QThread):
         
         self.max_reach = self.a2 + self.a3 + self.a5 + self.a6 - 5.0
 
-        # Physical Home Position (L-Shape) - TWOJE IDEALNE USTAWIENIE
+        # Physical Home Position (Kształt litery L zdefiniowany przez Ciebie)
         self.home_pos = {
             0: 2047, 1: 3147, 3: 1847, 
             4: 2147, 5: 2247, 6: 2047, 7: 2847
         }
         self.pos = self.home_pos.copy()
         
-        # ZERO CALIBRATION
+        # ZERO CALIBRATION (Matematyczne Zero absolutne na podstawie L-Shape)
         self.zero_pos = {
             0: 2047,                                  
             1: 3147 - int(90.0 / 0.088),              
@@ -62,6 +64,11 @@ class ControllerWorker(QThread):
         _, initial_ee_pose = self.get_kinematics(self.home_pos)
         self.target_pose = list(initial_ee_pose)
         print(f"[INIT] Initial target set to: {self.target_pose}")
+        
+        # Pamięć ostatniego CELU matematycznego (Rozwiązuje problem "Flipów")
+        self.last_t4 = self.raw_to_rad(self.home_pos[4], 4)
+        self.last_t5 = self.raw_to_rad(self.home_pos[5], 5)
+        self.last_t6 = self.raw_to_rad(self.home_pos[6], 6)
         
         self.pad_state = {
             'connected': False, 
@@ -125,8 +132,7 @@ class ControllerWorker(QThread):
         wrist    = [round(T04[0][3], 1), round(T04[1][3], 1), round(T04[2][3], 1)]
         ee_pos   = [round(T06[0][3], 1), round(T06[1][3], 1), round(T06[2][3], 1)]
 
-        # --- NOWOŚĆ: SFERYCZNE WYCIĄGANIE KĄTÓW (Z-Y-Z Euler) ---
-        # Dzięki temu ramię inicjalizuje się w trybie idealnym do rotacji samego chwytaka
+        # Sferyczne kąty Eulera (Z-Y-Z)
         cb = np.clip(T06[2][2], -1.0, 1.0)
         pitch = math.acos(cb)
         
@@ -141,16 +147,13 @@ class ControllerWorker(QThread):
         return [shoulder, elbow, wrist, ee_pos], ee_full_pose
 
     def update_ik_analytical(self):
-        """O(1) Perfect Analytical Solver with Z-Y-Z Spherical Wrist"""
-        
         yaw, pitch, roll = self.target_pose[3], self.target_pose[4], self.target_pose[5]
         
         cy, sy = math.cos(yaw), math.sin(yaw)
         cp, sp = math.cos(pitch), math.sin(pitch)
         cr, sr = math.cos(roll), math.sin(roll)
 
-        # --- NOWOŚĆ: MACIERZ Z-Y-Z --- 
-        # Zmiana 'roll' obraca teraz chwytak WOKÓŁ JEGO WŁASNEJ OSI!
+        # Macierz Rotacji Sferycznej
         R06 = np.array([
             [cy*cp*cr - sy*sr, -cy*cp*sr - sy*cr, cy*sp],
             [sy*cp*cr + cy*sr, -sy*cp*sr + cy*cr, sy*sp],
@@ -200,25 +203,48 @@ class ControllerWorker(QThread):
         
         R36 = np.dot(R03.T, R06)
         
-        current_t5 = self.raw_to_rad(self.pos[5], 5)
+        # --- ZABEZPIECZENIE PRZED OSOBLIWOŚCIĄ GIMBAL LOCK ---
         r_val = math.sqrt(R36[0,2]**2 + R36[1,2]**2)
         
-        t5_1 = math.atan2(r_val, R36[2,2])
-        t5_2 = math.atan2(-r_val, R36[2,2])
-        
-        if abs(t5_1 - current_t5) < abs(t5_2 - current_t5):
-            t5 = t5_1
-            sign = 1.0
+        # Zwiększony próg (0.02 to ok. 1.1 stopnia) - stabilizuje nadgarstek!
+        if r_val > 0.02:
+            t5_A = math.atan2(r_val, R36[2,2])
+            t4_A = math.atan2(R36[1,2], R36[0,2])
+            t6_A = math.atan2(R36[2,1], -R36[2,0])
+            
+            t5_B = math.atan2(-r_val, R36[2,2])
+            t4_B = math.atan2(-R36[1,2], -R36[0,2])
+            t6_B = math.atan2(-R36[2,1], R36[2,0])
+            
+            def ang_diff(a, b):
+                return abs((a - b + math.pi) % (2*math.pi) - math.pi)
+            
+            # Algorytm patrzy, do czego dążył w poprzedniej klatce, by uniknąć wibracji
+            cost_A = ang_diff(t4_A, self.last_t4) + ang_diff(t5_A, self.last_t5) + ang_diff(t6_A, self.last_t6)
+            cost_B = ang_diff(t4_B, self.last_t4) + ang_diff(t5_B, self.last_t5) + ang_diff(t6_B, self.last_t6)
+            
+            if cost_A <= cost_B:
+                t4, t5, t6 = t4_A, t5_A, t6_A
+            else:
+                t4, t5, t6 = t4_B, t5_B, t6_B
         else:
-            t5 = t5_2
-            sign = -1.0
-        
-        if abs(math.sin(t5)) > 0.001:
-            t4 = math.atan2(R36[1,2] * sign, R36[0,2] * sign)
-            t6 = math.atan2(R36[2,1] * sign, -R36[2,0] * sign)
-        else:
-            t4 = self.raw_to_rad(self.pos[4], 4) 
-            t6 = math.atan2(-R36[0,1], R36[0,0]) - t4
+            # Gdy Pitch jest prawie zero (osobliwość), zamrażamy ID 4 i kręcimy tylko ID 6
+            t4 = self.last_t4
+            
+            # Utrzymujemy znak t5, by zapobiec mikro-skokom
+            sign = 1.0 if self.last_t5 >= 0 else -1.0
+            t5 = math.atan2(r_val * sign, R36[2,2])
+            
+            # Bezpieczne wyprowadzenie t6 z pominięciem niestabilnego t4
+            if R36[2,2] > 0:
+                t6 = math.atan2(-R36[0,1], R36[0,0]) - t4
+            else:
+                t6 = math.atan2(R36[0,1], -R36[0,0]) + t4
+
+        # Zapisujemy do pamięci na następną klatkę
+        self.last_t4 = t4
+        self.last_t5 = t5
+        self.last_t6 = t6
 
         target_raw = {
             0: self.rad_to_raw(t1, 0),
@@ -229,8 +255,8 @@ class ControllerWorker(QThread):
             6: self.rad_to_raw(t6, 6)
         }
 
-        # --- BARDZO CIĘŻKI KAGANIEC (MAX 4 JEDNOSTKI NA KLATKĘ) ---
-        max_step = 4 
+        # Złoty środek kagańca
+        max_step = 16 
         
         for servo_id in [0, 1, 3, 4, 5, 6]:
             diff = target_raw[servo_id] - self.pos[servo_id]
@@ -254,8 +280,24 @@ class ControllerWorker(QThread):
         while self.is_running:
             self.status_signal.emit(self.pad_state.get('connected', False), serial_ok)
             
+            # Odczyt logów z Arduino (w tym komendy stat)
+            if self.ser and self.ser.is_open and self.ser.in_waiting > 0:
+                try:
+                    line = self.ser.readline().decode('utf-8', errors='ignore').strip()
+                    if line: print(f"[ESP32] {line}")
+                except Exception:
+                    pass
+            
             if self.pad_state.get('connected', False) and not self.is_homing:
                 
+                # --- COMMAND: TELEMETRY (D-Pad UP) ---
+                is_stat_pressed = self.pad_state.get('dpad_up', False)
+                if is_stat_pressed and not self.stat_btn_pressed:
+                    if self.ser and self.ser.is_open:
+                        self.ser.write(b"stat\n")
+                        print("\n[INFO] Requesting telemetry from ESP32...")
+                self.stat_btn_pressed = is_stat_pressed
+
                 if self.pad_state.get('btn_square', False): self.current_mode = "XYZ"
                 if self.pad_state.get('btn_triangle', False): self.current_mode = "ORIENTATION"
                 if self.pad_state.get('btn_circle', False): self.current_mode = "DRIVING"
@@ -274,9 +316,14 @@ class ControllerWorker(QThread):
                         self.target_pose[2] *= scale
 
                 elif self.current_mode == "ORIENTATION":
+                    # ZMIANA: Yaw (Lewo/Prawo): Przywrócone '+' -> gałka w lewo = chwytak w lewo
                     self.target_pose[3] += self.pad_state.get('lx', 0) * self.speed_angular
-                    self.target_pose[4] -= self.pad_state.get('ly', 0) * self.speed_angular
-                    self.target_pose[5] += self.pad_state.get('rx', 0) * self.speed_angular
+                    
+                    # Pitch (Góra/Dół): Zostaje '+' -> gałka w górę = chwytak w górę
+                    self.target_pose[4] += self.pad_state.get('ly', 0) * self.speed_angular
+                    
+                    # Roll (Twist): Zostaje '-' -> gałka w prawo = obraca się w prawo
+                    self.target_pose[5] -= self.pad_state.get('rx', 0) * self.speed_angular
 
                 grip_speed = 5
                 if self.pad_state.get('l2', 0) > 0.05: self.pos[7] -= (self.pad_state.get('l2', 0) * grip_speed)
@@ -296,7 +343,8 @@ class ControllerWorker(QThread):
                                      self.pos[4], self.pos[5], self.pos[6], self.pos[7]]
                 self.telemetry_signal.emit(current_telemetry)
 
-            if self.pad_state.get('connected', False) and self.pad_state.get('dpad_up', False) and not self.is_homing:
+            # --- SAFE HOMING (D-Pad DOWN) ---
+            if self.pad_state.get('connected', False) and self.pad_state.get('dpad_down', False) and not self.is_homing:
                 self.is_homing = True
                 print("\n[INFO] Initiating smart homing sequence...")
                 if self.ser and self.ser.is_open:
@@ -305,6 +353,11 @@ class ControllerWorker(QThread):
                 
                 _, home_ee_pose = self.get_kinematics(self.home_pos)
                 self.target_pose = list(home_ee_pose)
+                
+                # Zabezpieczenie stanu pamięci podczas homingu
+                self.last_t4 = self.raw_to_rad(self.home_pos[4], 4)
+                self.last_t5 = self.raw_to_rad(self.home_pos[5], 5)
+                self.last_t6 = self.raw_to_rad(self.home_pos[6], 6)
                 
                 homing_sequence = [0, 1, 3, 4, 5, 6, 7]
                 for servo_id in homing_sequence:
