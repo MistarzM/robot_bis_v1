@@ -83,7 +83,11 @@ void loop() {
         int pos = data.substring(commaIdx + 1).toInt();
         
         if (pos >= 0 && pos <= 4095) {
-          st.WritePosEx(id, pos, 0, 0); 
+          if (id == 0 || id == 1 || id == 2 || id == 3 || id == 5) {
+            st.WritePosEx(id, pos, 2048, 32); 
+          } else if (id == 4 || id == 6 || id == 7) {
+            st.WritePosEx(id, pos, 3400, 64); 
+          }
         }
       }
     }
