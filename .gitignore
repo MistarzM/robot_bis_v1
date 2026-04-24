@@ -1,5 +1,17 @@
-.DS_Store
+# compiled files
+__pycache__/
+*.py[cod]
+*$py.class
 
-.venv/
+# virtual enviroment
 venv/
+.venv/
 env/
+
+# system files
+.DS_Store
+Thumbs.db
+
+# config files
+.vscode/
+.idea/
