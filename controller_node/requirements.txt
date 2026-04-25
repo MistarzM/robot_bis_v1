@@ -1,3 +1,4 @@
 pyserial
 pyzmq
 numpy
+opencv-python

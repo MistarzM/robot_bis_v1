@@ -3,7 +3,8 @@ import math
 # --- COMMUNICATION ---
 PORT = '/dev/ttyUSB0'  
 BAUD = 115200
-ZMQ_PORT = "5555"      
+ZMQ_PORT = "5555"
+VIDEO_PORT = "5556"      
 
 # --- MOVEMENT PARAMETERS ---
 SPEED_LINEAR = 2.0    
