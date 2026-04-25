@@ -8,28 +8,29 @@ class Esp32Serial:
         self.is_connected = False
 
     def connect(self):
-        print(f"[INFO] Connecting to ESP32 on {config.PORT}...")
         try:
             self.ser = serial.Serial(config.PORT, config.BAUD, timeout=0.1)
             time.sleep(2)
             self.is_connected = True
-            print("[SUCC] ESP32 Connected successfully")
-        except Exception as e:
-            print(f"[ERR] Serial Error: {e}")
+        except Exception:
             self.is_connected = False
 
     def read_telemetry(self):
+        # TWORZYMY LISTĘ LOGÓW ZAMIAST TYLKO PRINTOWAĆ
+        logs = []
         if self.is_connected and self.ser.in_waiting > 0:
-            try:
-                line = self.ser.readline().decode('utf-8', errors='ignore').strip()
-                if line: print(f"[ESP32] {line}")
-            except Exception:
-                pass
+            while self.ser.in_waiting > 0:
+                try:
+                    line = self.ser.readline().decode('utf-8', errors='ignore').strip()
+                    if line: 
+                        logs.append(f"[ESP32] {line}")
+                except Exception:
+                    pass
+        return logs
 
     def request_stat(self):
         if self.is_connected:
             self.ser.write(b"stat\n")
-            print("\n[INFO] Requesting telemetry from ESP32...")
 
     def send_reset(self):
         if self.is_connected:

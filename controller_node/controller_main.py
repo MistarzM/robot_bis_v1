@@ -10,9 +10,9 @@ class RobotServer:
         self.kinematics = RobotKinematics()
         self.serial = Esp32Serial()
         
-        # ZeroMQ Server (Nasłuchuje na wszystkich interfejsach Malinki)
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
+        self.socket.setsockopt(zmq.LINGER, 0)
         self.socket.bind(f"tcp://0.0.0.0:{config.ZMQ_PORT}")
         
         _, initial_pose = self.kinematics.get_kinematics(self.kinematics.pos)
@@ -20,10 +20,13 @@ class RobotServer:
         self.current_mode = "XYZ"
         self.is_homing = False
         self.stat_btn_pressed = False
+        
+        # BUFOR NA LOGI
+        self.sys_logs = []
 
     def perform_homing(self):
         self.is_homing = True
-        print("[INFO] Homing sequence started...")
+        self.sys_logs.append("[INFO] Homing sequence started...")
         self.serial.send_reset()
         time.sleep(1.0) 
         
@@ -42,7 +45,9 @@ class RobotServer:
             else:
                 self.serial.send_command(f"{servo_id},{int(target)}\n")
             time.sleep(0.5) 
+            
         self.is_homing = False
+        self.sys_logs.append("[SUCC] Homing complete.")
 
     def process_request(self, msg):
         if msg.get("command") == "CONTROL":
@@ -50,13 +55,11 @@ class RobotServer:
             
             if pad.get("connected") and not self.is_homing:
                 
-                # Zmiana trybów
                 if pad.get('btn_square'): self.current_mode = "XYZ"
                 if pad.get('btn_triangle'): self.current_mode = "ORIENTATION"
                 if pad.get('btn_circle'): self.current_mode = "DRIVING"
                 if pad.get('btn_cross'): self.current_mode = "AUTONOMOUS"
 
-                # Ruch
                 if self.current_mode == "XYZ":
                     self.target_pose[0] -= pad.get('ly', 0) * config.SPEED_LINEAR
                     self.target_pose[1] += pad.get('lx', 0) * config.SPEED_LINEAR
@@ -74,33 +77,33 @@ class RobotServer:
                     self.target_pose[4] += pad.get('ly', 0) * config.SPEED_ANGULAR
                     self.target_pose[5] -= pad.get('rx', 0) * config.SPEED_ANGULAR
 
-                # Chwytak
                 if pad.get('l2', 0) > 0.05: self.kinematics.pos[7] -= (pad.get('l2', 0) * config.GRIP_SPEED)
                 if pad.get('r2', 0) > 0.05: self.kinematics.pos[7] += (pad.get('r2', 0) * config.GRIP_SPEED)
                 self.kinematics.pos[7] = max(0, min(4095, self.kinematics.pos[7]))
 
-                # Telemetria sprzętowa
                 is_stat = pad.get('dpad_up', False)
                 if is_stat and not self.stat_btn_pressed:
                     self.serial.request_stat()
+                    self.sys_logs.append("[INFO] Requested STAT from ESP32...")
                 self.stat_btn_pressed = is_stat
 
-                # Homing
                 if pad.get('dpad_down', False):
                     self.perform_homing()
                 else:
                     self.kinematics.solve_ik(self.target_pose)
 
-        # Pobranie aktualnego stanu do odesłania
         coords, _ = self.kinematics.get_kinematics(self.kinematics.pos)
         
-        return {
+        reply = {
             "status": "OK",
-            "coords": coords,
-            "target": self.target_pose,
+            "coords": [[float(val) for val in point] for point in coords],
+            "target": [float(t) for t in self.target_pose],
             "mode": self.current_mode,
-            "servos": [self.kinematics.pos[i] for i in [0, 1, 3, 4, 5, 6, 7]]
+            "servos": [int(self.kinematics.pos[i]) for i in [0, 1, 3, 4, 5, 6, 7]],
+            "logs": self.sys_logs.copy() # Odsyłamy wszystko, co uzbieraliśmy!
         }
+        self.sys_logs.clear() # Czyścimy bufor po wysłaniu
+        return reply
 
     def start(self):
         self.serial.connect()
@@ -108,26 +111,29 @@ class RobotServer:
         
         try:
             while True:
-                # Blokuje się, dopóki laptop czegoś nie wyśle!
-                # To sprawia, że Raspberry Pi i Laptop są perfekcyjnie zsynchronizowane.
                 msg = self.socket.recv_json()
                 
-                # Zawsze czytaj telemetrię z Arduino
-                self.serial.read_telemetry()
+                # Odczytaj z portu USB i wrzuć do bufora logów
+                esp_logs = self.serial.read_telemetry()
+                if esp_logs:
+                    self.sys_logs.extend(esp_logs)
                 
-                # Przetwórz polecenie
                 reply = self.process_request(msg)
                 
-                # Wyślij pozycje do silników
                 if not self.is_homing:
                     self.serial.send_positions(self.kinematics.pos)
                 
-                # Odeślij JSON z powrotem do Laptopa
                 self.socket.send_json(reply)
 
         except KeyboardInterrupt:
-            print("\n[INFO] Shutting down server...")
+            print("\n[INFO] Server stopped manually (Ctrl+C).")
+        except Exception as e:
+            print(f"\n[CRITICAL] Server crashed with error: {e}")
+        finally:
+            print("[INFO] Cleaning up network ports and shutting down...")
             self.serial.disconnect()
+            self.socket.close()
+            self.context.term()
 
 if __name__ == "__main__":
     server = RobotServer()
