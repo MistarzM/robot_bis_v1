@@ -18,7 +18,7 @@ def start_chassis():
     try:
         chassis = serial.Serial(config.CHASSIS_PORT, config.CHASSIS_BAUD, timeout=0.01)
         time.sleep(2)
-        # Wymuszenie ciągłego wysyłania telemetrii przez kontroler UGV02!
+        # Wymuszenie ciągłego wysyłania telemetrii przez kontroler UGV02
         chassis.write((json.dumps({"T": 605, "cmd": 2}) + "\n").encode())
         print("[CHASSIS] Connected and continuous telemetry enabled.")
     except Exception as e:
@@ -38,15 +38,17 @@ def start_chassis():
                 if line.startswith('{'): 
                     try:
                         data = json.loads(line)
-                        # Waveshare może używać dużego lub małego 'V' w zależności od wersji softu
-                        if "V" in data:
-                            last_v = data["V"]
-                        elif "v" in data:
-                            last_v = data["v"]
+                        raw_v = data.get("V", data.get("v", 0.0))
+                        
+                        # FIX BATERII: Jeśli UGV02 wysyła 1167 zamiast 11.67, dzielimy przez 100
+                        if raw_v > 100:
+                            last_v = raw_v / 100.0
+                        else:
+                            last_v = float(raw_v)
+                            
                     except: 
                         pass
                 elif line:
-                    # Jeśli UGV wysyła coś poza JSONem (np. błąd), rzucamy to do terminala na Malince
                     print(f"[CHASSIS RAW] {line}")
 
             # 2. Nasłuch komend jazdy
