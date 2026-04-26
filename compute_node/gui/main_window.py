@@ -77,7 +77,7 @@ class MainWindow(QMainWindow):
         self.coord_labels = {}
         
         self.lbl_target = QLabel("TARGET: X: 0.0 | Y: 0.0 | Z: 0.0 | Yaw: 0.00 | Pitch: 0.00 | Roll: 0.00")
-        self.lbl_target.setStyleSheet("font-family: monospace; color: #ff5555; font-weight: bold; background: #222; padding: 5px;")
+        self.lbl_target.setStyleSheet("font-family: 'Menlo', 'Courier New', monospace; color: #ff5555; font-weight: bold; background: #222; padding: 5px;")
         spatial_layout.addWidget(self.lbl_target)
         
         points = ["Shoulder", "Elbow", "Wrist", "Gripper (EE)"]
@@ -86,7 +86,7 @@ class MainWindow(QMainWindow):
             name = QLabel(f"{point}:")
             name.setFixedWidth(100)
             val = QLabel("X: 0.0 | Y: 0.0 | Z: 0.0")
-            val.setStyleSheet("font-family: monospace; color: cyan; font-weight: bold;")
+            val.setStyleSheet("font-family: 'Menlo', 'Courier New', monospace; color: cyan; font-weight: bold;")
             row.addWidget(name)
             row.addWidget(val)
             spatial_layout.addLayout(row)
@@ -106,7 +106,7 @@ class MainWindow(QMainWindow):
             name_label = QLabel(f"{name}:")
             name_label.setFixedWidth(120)
             value_label = QLabel("0")
-            value_label.setStyleSheet("font-family: monospace; font-weight: bold;")
+            value_label.setStyleSheet("font-family: 'Menlo', 'Courier New', monospace; font-weight: bold;")
             row_layout.addWidget(name_label)
             row_layout.addWidget(value_label)
             row_layout.addStretch()
@@ -145,7 +145,7 @@ class MainWindow(QMainWindow):
         console_layout = QVBoxLayout()
         self.txt_console = QTextEdit()
         self.txt_console.setReadOnly(True)
-        self.txt_console.setStyleSheet("background-color: #1e1e1e; color: #00ff00; font-family: monospace; font-size: 13px;")
+        self.txt_console.setStyleSheet("background-color: #1e1e1e; color: #00ff00; font-family: 'Menlo', 'Courier New', monospace; font-size: 13px;")
         console_layout.addWidget(self.txt_console)
         console_group.setLayout(console_layout)
         # Konsola zajmie 40% prawej kolumny

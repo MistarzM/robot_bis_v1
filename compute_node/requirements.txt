@@ -2,3 +2,5 @@ PySide6
 pygame
 pyzmq
 numpy
+opencv-python
+ultralytics

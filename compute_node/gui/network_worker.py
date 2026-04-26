@@ -1,3 +1,6 @@
+import cv2
+import numpy as np
+from ai_vision.object_detector import YoloDetector
 import time
 import zmq
 from PySide6.QtCore import QThread, Signal, QByteArray
@@ -65,20 +68,38 @@ class VideoWorker(QThread):
         self.is_running = True
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.SUB)
+        # resolving problem with delay
+        self.socket.setsockopt(zmq.CONFLATE, 1)
         self.socket.setsockopt(zmq.RCVTIMEO, 1000)
         self.socket.setsockopt_string(zmq.SUBSCRIBE, "") 
         self.video_url = f"tcp://{config.ROBOT_IP}:{config.VIDEO_PORT}"
+        self.detector = YoloDetector()
 
     def run(self):
-        print(f"[VIDEO] Connecting to {self.video_url}")
+        print(f"[VIDEO] Connecting to {self.video_url} and starting AI analysis...")
         self.socket.connect(self.video_url)
 
         while self.is_running:
             try:
+                # 1. Odbierz bajty (JPEG) z Raspberry Pi
                 frame_bytes = self.socket.recv()
-                self.frame_signal.emit(frame_bytes)
+                
+                # 2. Dekoduj bajty do macierzy obrazu OpenCV (Numpy Array)
+                nparr = np.frombuffer(frame_bytes, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                
+                if frame is not None:
+                    # 3. Przepuść przez YOLOv8!
+                    annotated_frame, detections = self.detector.process_frame(frame)
+                    
+                    # 4. Zakoduj z powrotem do JPEG, żeby interfejs PySide6 mógł to łatwo wyświetlić
+                    _, buffer = cv2.imencode('.jpg', annotated_frame)
+                    
+                    # 5. Wyślij do GUI
+                    self.frame_signal.emit(buffer.tobytes())
+                    
             except zmq.Again:
-                pass # Brak klatki, czekamy dalej
+                pass 
                 
     def stop(self):
         self.is_running = False

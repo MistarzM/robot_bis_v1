@@ -7,8 +7,6 @@ def main():
     
     python_bin = sys.executable
 
-    # ZMIANA: Używamy flagi "-m" i notacji z kropką (services.nazwa)
-    # To mówi Pythonowi: "Uruchom to, ale pamiętaj, że główny folder to UGV02_Workspace"
     print("[SYSTEM] Starting Arm Service...")
     arm_process = subprocess.Popen([python_bin, "-m", "services.arm_service"])
     
@@ -35,7 +33,7 @@ def main():
         
         arm_process.wait()
         cam_process.wait()
-        print("[SYSTEM] Shutdown complete. Goodbye!")
+        print("[SYSTEM] Shutdown complete.")
 
 if __name__ == "__main__":
     main()
