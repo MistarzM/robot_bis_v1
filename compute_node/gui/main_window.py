@@ -30,17 +30,14 @@ class MainWindow(QMainWindow):
         self.main_layout.addLayout(self.left_column, 1)
         self.main_layout.addLayout(self.right_column, 2)
 
-        # 1. Worker do komend z Pada (Port 5555)
         self.worker = NetworkWorker()
         self.worker.status_signal.connect(self.update_pad_status)
         self.worker.start()
 
-        # 2. Worker do ciągłej Telemetrii (Port 5558)
         self.telemetry_worker = TelemetryWorker()
         self.telemetry_worker.feedback_signal.connect(self.process_telemetry)
         self.telemetry_worker.start()
 
-        # 3. Worker do Wideo (Port 5556)
         self.video_worker = VideoWorker()
         self.video_worker.frame_signal.connect(self.update_camera_frame)
         self.video_worker.start()
@@ -104,29 +101,31 @@ class MainWindow(QMainWindow):
         group = QGroupBox("Servo Status Dashboard")
         layout = QGridLayout()
         
-        # Headers
-        headers = ["ID", "Position", "Temp", "Volt", "Status"]
+        headers = ["ID", "Position", "Temp", "Volt", "Curr", "Status"]
         for col, text in enumerate(headers):
             lbl = QLabel(text)
             lbl.setStyleSheet("color: #888; font-weight: bold;")
             layout.addWidget(lbl, 0, col)
             
         self.servo_data = []
-        names = ["Bse(0)", "ShL(1)", "UAr(3)", "For(4)", "WPi(5)", "WRo(6)", "Grp(7)"]
+        names = ["Bse(0)", "ShL(1)", "ShR(2)", "UAr(3)", "For(4)", "WPi(5)", "WRo(6)", "Grp(7)"]
         
         for row, name in enumerate(names, start=1):
             row_data = {
                 "name": QLabel(name),
                 "pos": QLabel("0"),
-                "temp": QLabel("-- °C"), # Gotowe na parsowanie z ESP32
+                "temp": QLabel("-- °C"), 
                 "vol": QLabel("-- V"),
-                "stat": QLabel("OK")
+                "curr": QLabel("-- mA"),
+                "stat": QLabel("INACTIVE")
             }
             layout.addWidget(row_data["name"], row, 0)
             layout.addWidget(row_data["pos"], row, 1)
             layout.addWidget(row_data["temp"], row, 2)
             layout.addWidget(row_data["vol"], row, 3)
-            layout.addWidget(row_data["stat"], row, 4)
+            layout.addWidget(row_data["curr"], row, 4)
+            layout.addWidget(row_data["stat"], row, 5)
+            row_data["stat"].setStyleSheet("color: gray;")
             self.servo_data.append(row_data)
             
         group.setLayout(layout)
@@ -163,7 +162,6 @@ class MainWindow(QMainWindow):
         parent.addWidget(group, 4)
 
     def update_pad_status(self, pad_ok, _):
-        # Robot link is now handled by telemetry
         self.status_labels["pad"].setText("Gamepad: CONNECTED" if pad_ok else "Gamepad: DISCONNECTED")
         self.status_labels["pad"].setStyleSheet(f"color: {'#4e9a06' if pad_ok else 'red'}; font-weight: bold;")
 
@@ -173,7 +171,7 @@ class MainWindow(QMainWindow):
         self.lbl_camera.setPixmap(pixmap.scaled(self.lbl_camera.width(), self.lbl_camera.height(), Qt.KeepAspectRatio))
 
     def process_telemetry(self, data):
-        # 1. Update Modes & Targets
+        # 1. Update Mode
         mode = data.get("mode", "UNKNOWN")
         colors = {"XYZ": "#204a87", "ORIENTATION": "#c4a000", "DRIVING": "#cc0000", "AUTONOMOUS": "#4e9a06"}
         self.lbl_mode.setText(f"[{mode}]")
@@ -189,11 +187,11 @@ class MainWindow(QMainWindow):
         
         arm_s = data.get('arm_status', 'WAIT')
         self.status_labels["arm"].setText(f"Arm: {arm_s}")
-        self.status_labels["arm"].setStyleSheet(f"color: {'cyan' if arm_s != 'IDLE' else '#4e9a06'}; font-weight: bold;")
+        self.status_labels["arm"].setStyleSheet(f"color: {'cyan' if 'MOVING' in arm_s else '#4e9a06' if arm_s == 'ACTIVE' else 'gray'}; font-weight: bold;")
         
         chas_s = data.get('chassis_status', 'WAIT')
         self.status_labels["chassis"].setText(f"Chassis: {chas_s}")
-        self.status_labels["chassis"].setStyleSheet(f"color: {'#4e9a06' if chas_s == 'ACTIVE' else 'orange'}; font-weight: bold;")
+        self.status_labels["chassis"].setStyleSheet(f"color: {'cyan' if chas_s == 'MOVING' else '#4e9a06' if chas_s == 'ACTIVE' else 'gray'}; font-weight: bold;")
 
         # 3. Spatial Coords
         coords = data.get("coords", [])
@@ -202,21 +200,29 @@ class MainWindow(QMainWindow):
             for i, pt in enumerate(pts):
                 self.coord_labels[pt].setText(f"X: {coords[i][0]:>5.1f} | Y: {coords[i][1]:>5.1f} | Z: {coords[i][2]:>5.1f}")
 
-        # 4. Servo Status Dashboard
+        # 4. Dashboard z danymi o serwach
         servos = data.get("servos", [])
         if len(servos) == len(self.servo_data):
-            for i in range(len(servos)):
-                self.servo_data[i]["pos"].setText(str(servos[i]))
-                # Gdy dodamy parsowanie z ESP32, tutaj podmienimy temp i vol
-                self.servo_data[i]["stat"].setText("RUN" if arm_s != "IDLE" else "OK")
+            for i, s_data in enumerate(servos):
+                self.servo_data[i]["pos"].setText(str(s_data["pos"]))
+                self.servo_data[i]["temp"].setText(f"{s_data['temp']} °C" if s_data['temp'] != '--' else "-- °C")
+                self.servo_data[i]["vol"].setText(f"{s_data['volt']} V" if s_data['volt'] != '--' else "-- V")
+                self.servo_data[i]["curr"].setText(f"{s_data['curr']} mA" if s_data['curr'] != '--' else "-- mA")
+                
+                if arm_s == "IDLE":
+                    self.servo_data[i]["stat"].setText("INACTIVE")
+                    self.servo_data[i]["stat"].setStyleSheet("color: gray;")
+                else:
+                    self.servo_data[i]["stat"].setText("ACTIVE")
+                    self.servo_data[i]["stat"].setStyleSheet("color: #4e9a06;")
 
-        # 5. Chassis Battery
+        # 5. Bateria Podwozia
         chas_data = data.get("chassis_data", {})
         volts = chas_data.get("voltage", 0.0)
         self.lbl_battery.setText(f"Battery: {volts:.2f} V")
         self.lbl_battery.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {'red' if volts > 0 and volts < 10.5 else '#4e9a06'};")
 
-        # 6. Logs
+        # 6. Czyste Logi
         for log in data.get("logs", []):
             self.txt_console.append(log)
             sb = self.txt_console.verticalScrollBar()

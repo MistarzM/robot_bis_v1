@@ -7,12 +7,10 @@ from core import config
 def start_chassis():
     context = zmq.Context()
     
-    # Listen for local commands from Arm
     sub_socket = context.socket(zmq.SUB)
     sub_socket.connect(f"tcp://127.0.0.1:{config.ZMQ_LOCAL_COMMANDS}")
     sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
-    # Broadcast local telemetry (battery) back to Arm
     pub_socket = context.socket(zmq.PUB)
     pub_socket.bind(f"tcp://127.0.0.1:{config.ZMQ_LOCAL_TELEMETRY}")
 
@@ -26,20 +24,24 @@ def start_chassis():
         return
 
     was_moving = False
+    current_status = "IDLE"
+    last_v = 0.0
+    last_telem_send = 0
 
     try:
         while True:
-            # 1. Read Hardware Telemetry
+            # 1. Nasłuch Portu Szeregowego z UGV02 (aktualizuje zmienną last_v)
             if chassis.in_waiting > 0:
                 line = chassis.readline().decode('utf-8', errors='ignore').strip()
-                if line.startswith('{'): 
+                if "V" in line: 
                     try:
                         data = json.loads(line)
-                        pub_socket.send_json({"voltage": data.get("V", 0.0)})
+                        if "V" in data:
+                            last_v = data["V"]
                     except: 
                         pass
 
-            # 2. Process Local Commands
+            # 2. Nasłuch Komend (Aktualizuje jazdę i status)
             try:
                 msg = sub_socket.recv_json(flags=zmq.NOBLOCK)
                 pad = msg.get("pad", {})
@@ -52,16 +54,25 @@ def start_chassis():
                     if abs(drive_x) > 0.05 or abs(drive_z) > 0.05:
                         chassis.write((json.dumps({"T": 13, "X": drive_x, "Z": drive_z}) + "\n").encode())
                         was_moving = True
-                    elif was_moving:
-                        chassis.write((json.dumps({"T": 13, "X": 0.0, "Z": 0.0}) + "\n").encode())
-                        was_moving = False
+                        current_status = "MOVING"
+                    else:
+                        current_status = "ACTIVE"
+                        if was_moving:
+                            chassis.write((json.dumps({"T": 13, "X": 0.0, "Z": 0.0}) + "\n").encode())
+                            was_moving = False
                 else:
+                    current_status = "IDLE"
                     if was_moving:
                         chassis.write((json.dumps({"T": 13, "X": 0.0, "Z": 0.0}) + "\n").encode())
                         was_moving = False
                         
             except zmq.Again:
                 pass 
+                
+            # 3. Stałe nadawanie do Mózgu (nawet jeśli napięcie się nie odświeżyło sprzętowo)
+            if time.time() - last_telem_send > 0.1: # 10 FPS
+                pub_socket.send_json({"voltage": last_v, "status": current_status})
+                last_telem_send = time.time()
                 
     finally:
         print("[CHASSIS] Shutting down...")
