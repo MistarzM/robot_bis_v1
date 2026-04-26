@@ -37,13 +37,18 @@ class RobotServer:
         self.last_chassis_telemetry = {"voltage": 0.0, "status": "WAITING"}
         self.last_stat_request = time.time()
         
-        # Pamięć podręczna na statystyki serwomechanizmów
-        self.servo_stats = {id: {'temp': '--', 'volt': '--', 'curr': '--'} for id in [0,1,2,3,4,5,6,7]}
+        # Pamięć podręczna (Dodany klucz 'status')
+        self.servo_stats = {id: {'temp': '--', 'volt': '--', 'curr': '--', 'status': 'OK'} for id in [0,1,2,3,4,5,6,7]}
 
     def perform_homing(self):
         self.is_homing = True
         self.arm_status = "HOMING"
-        self.sys_logs.append("[INFO] Homing sequence started...")
+        self.sys_logs.append("[INFO] Homing sequence started. Resetting error states...")
+        
+        # Przy homingu dajemy wszystkim serwom czystą kartę
+        for s_id in self.servo_stats:
+            self.servo_stats[s_id] = {'temp': '--', 'volt': '--', 'curr': '--', 'status': 'OK'}
+            
         self.serial.send_reset()
         time.sleep(1.0) 
         
@@ -68,7 +73,6 @@ class RobotServer:
             pad = msg.get("pad", {})
             if pad.get("connected") and not self.is_homing:
                 
-                # Zmiana trybów
                 if pad.get('btn_square'): self.current_mode = "XYZ"
                 if pad.get('btn_triangle'): self.current_mode = "YPR"
                 if pad.get('btn_circle'): self.current_mode = "DRIVING"
@@ -76,7 +80,6 @@ class RobotServer:
 
                 self.pub_socket.send_json({"pad": pad, "mode": self.current_mode})
 
-                # Dynamiczny status i ruch
                 if self.current_mode == "XYZ":
                     if abs(pad.get('lx', 0)) > 0.05 or abs(pad.get('ly', 0)) > 0.05 or abs(pad.get('ry', 0)) > 0.05:
                         self.arm_status = "MOVING (XYZ)"
@@ -105,10 +108,8 @@ class RobotServer:
                     self.target_pose[5] -= pad.get('rx', 0) * config.SPEED_ANGULAR
 
                 else:
-                    # Wymuszenie statusu IDLE dla ramienia w trybie DRIVING / AUTONOMOUS
                     self.arm_status = "IDLE"
 
-                # Chwytak działa niezależnie od trybu
                 if pad.get('l2', 0) > 0.05: self.kinematics.pos[7] -= (pad.get('l2', 0) * config.GRIP_SPEED)
                 if pad.get('r2', 0) > 0.05: self.kinematics.pos[7] += (pad.get('r2', 0) * config.GRIP_SPEED)
                 self.kinematics.pos[7] = max(0, min(4095, self.kinematics.pos[7]))
@@ -127,7 +128,6 @@ class RobotServer:
 
         coords, _ = self.kinematics.get_kinematics(self.kinematics.pos)
         
-        # Przygotowanie pakietu serw (włączając ID 2)
         servos_payload = []
         for s_id in [0, 1, 2, 3, 4, 5, 6, 7]:
             if s_id == 2:
@@ -138,7 +138,8 @@ class RobotServer:
             stat = self.servo_stats[s_id]
             servos_payload.append({
                 "id": s_id, "pos": pos, 
-                "temp": stat['temp'], "volt": stat['volt'], "curr": stat['curr']
+                "temp": stat['temp'], "volt": stat['volt'], "curr": stat['curr'],
+                "status": stat['status'] # Przekazujemy prawdziwy status sprzętowy
             })
         
         telemetry = {
@@ -162,17 +163,29 @@ class RobotServer:
         
         try:
             while True:
-                # 1. Telemetria Podwozia
                 try:
                     self.last_chassis_telemetry = self.chassis_sub.recv_json(flags=zmq.NOBLOCK)
                 except zmq.Again:
                     pass
 
-                # 2. Parsowanie Logów Szeregowych
                 esp_logs = self.serial.read_telemetry()
                 if esp_logs:
                     for line in esp_logs:
-                        if "Temp:" in line and "Volt:" in line:
+                        # WYŁAPYWANIE BŁĘDU ZASILANIA / BRAKU POŁĄCZENIA
+                        if "NOT FOUND" in line:
+                            id_m = re.search(r'ID (\d+)', line)
+                            if id_m:
+                                s_id = int(id_m.group(1))
+                                if s_id in self.servo_stats:
+                                    self.servo_stats[s_id]['status'] = 'ERROR'
+                                    self.servo_stats[s_id]['temp'] = '--'
+                                    self.servo_stats[s_id]['volt'] = '--'
+                                    self.servo_stats[s_id]['curr'] = '--'
+                            # Zostawiamy błąd w logach GUI, żeby użytkownik to widział
+                            self.sys_logs.append(line)
+                            
+                        # ODCZYT PRAWIDŁOWYCH DANYCH
+                        elif "Temp:" in line and "Volt:" in line:
                             try:
                                 id_m = re.search(r'ID (\d+)', line)
                                 temp_m = re.search(r'Temp: (\d+)C', line)
@@ -182,13 +195,13 @@ class RobotServer:
                                 if id_m:
                                     s_id = int(id_m.group(1))
                                     if s_id in self.servo_stats:
+                                        self.servo_stats[s_id]['status'] = 'OK' # Kasujemy błąd po odzyskaniu łączności
                                         self.servo_stats[s_id]['temp'] = temp_m.group(1) if temp_m else '--'
                                         self.servo_stats[s_id]['volt'] = volt_m.group(1) if volt_m else '--'
                                         self.servo_stats[s_id]['curr'] = curr_m.group(1) if curr_m else '--'
                             except Exception:
                                 pass
                         elif "[STAT]" not in line:
-                            # Do GUI trafiają tylko "czyste" logi bez zaspamowanych statusów
                             self.sys_logs.append(line)
 
                 self.broadcast_telemetry()
