@@ -1,7 +1,7 @@
 import math
 
 # --- NETWORK SETTINGS (ZeroMQ) ---
-ZMQ_ARM_PORT = "5555"       
+ZMQ_CONTROL_PORT = "5555"       
 ZMQ_VIDEO_PORT = "5556"     
 ZMQ_LOCAL_PORT = "5557"     
 

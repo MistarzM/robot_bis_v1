@@ -1,7 +1,7 @@
 # --- NETWORK SETTINGS ---
 ROBOT_IP = "192.168.55.105"  # hostname -I
-ROBOT_PORT = "5555"
-VIDEO_PORT = "5556"
+ZMQ_CONTROL_PORT = "5555"         
+ZMQ_VIDEO_PORT = "5556"       
 
 # --- GAMEPAD  ---
 BUTTON_MAP = {

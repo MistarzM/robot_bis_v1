@@ -13,7 +13,7 @@ class RobotServer:
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
         self.socket.setsockopt(zmq.LINGER, 0)
-        self.socket.bind(f"tcp://0.0.0.0:{config.ZMQ_ARM_PORT}")
+        self.socket.bind(f"tcp://0.0.0.0:{config.ZMQ_CONTROL_PORT}")
         
         # Local PUB socket to broadcast gamepad data to chassis_service
         self.pub_context = zmq.Context()

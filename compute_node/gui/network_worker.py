@@ -21,7 +21,7 @@ class NetworkWorker(QThread):
         
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REQ)
-        self.robot_url = f"tcp://{config.ROBOT_IP}:{config.ROBOT_PORT}"
+        self.robot_url = f"tcp://{config.ROBOT_IP}:{config.ZMQ_CONTROL_PORT}"
         self.socket.setsockopt(zmq.RCVTIMEO, 500)
 
     def run(self):
@@ -72,7 +72,7 @@ class VideoWorker(QThread):
         self.socket.setsockopt(zmq.CONFLATE, 1)
         self.socket.setsockopt(zmq.RCVTIMEO, 1000)
         self.socket.setsockopt_string(zmq.SUBSCRIBE, "") 
-        self.video_url = f"tcp://{config.ROBOT_IP}:{config.VIDEO_PORT}"
+        self.video_url = f"tcp://{config.ROBOT_IP}:{config.ZMQ_VIDEO_PORT}"
         self.detector = YoloDetector()
 
     def run(self):
