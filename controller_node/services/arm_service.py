@@ -37,7 +37,7 @@ class RobotServer:
         self.last_chassis_telemetry = {"voltage": 0.0, "status": "WAITING"}
         self.last_stat_request = time.time()
         
-        # Pamięć podręczna na statystyki serwomechanizmów (w tym ID 2)
+        # Pamięć podręczna na statystyki serwomechanizmów
         self.servo_stats = {id: {'temp': '--', 'volt': '--', 'curr': '--'} for id in [0,1,2,3,4,5,6,7]}
 
     def perform_homing(self):
@@ -60,6 +60,7 @@ class RobotServer:
             time.sleep(0.5) 
             
         self.is_homing = False
+        self.arm_status = "IDLE"
         self.sys_logs.append("[SUCC] Homing complete.")
 
     def process_request(self, msg):
@@ -67,8 +68,9 @@ class RobotServer:
             pad = msg.get("pad", {})
             if pad.get("connected") and not self.is_homing:
                 
+                # Zmiana trybów
                 if pad.get('btn_square'): self.current_mode = "XYZ"
-                if pad.get('btn_triangle'): self.current_mode = "ORIENTATION"
+                if pad.get('btn_triangle'): self.current_mode = "YPR"
                 if pad.get('btn_circle'): self.current_mode = "DRIVING"
                 if pad.get('btn_cross'): self.current_mode = "AUTONOMOUS"
 
@@ -92,7 +94,7 @@ class RobotServer:
                         self.target_pose[1] *= scale
                         self.target_pose[2] *= scale
 
-                elif self.current_mode == "ORIENTATION":
+                elif self.current_mode == "YPR":
                     if abs(pad.get('lx', 0)) > 0.05 or abs(pad.get('ly', 0)) > 0.05 or abs(pad.get('rx', 0)) > 0.05:
                         self.arm_status = "MOVING (YPR)"
                     else:
@@ -103,9 +105,10 @@ class RobotServer:
                     self.target_pose[5] -= pad.get('rx', 0) * config.SPEED_ANGULAR
 
                 else:
-                    # Jeśli tryb DRIVING lub AUTONOMOUS
+                    # Wymuszenie statusu IDLE dla ramienia w trybie DRIVING / AUTONOMOUS
                     self.arm_status = "IDLE"
 
+                # Chwytak działa niezależnie od trybu
                 if pad.get('l2', 0) > 0.05: self.kinematics.pos[7] -= (pad.get('l2', 0) * config.GRIP_SPEED)
                 if pad.get('r2', 0) > 0.05: self.kinematics.pos[7] += (pad.get('r2', 0) * config.GRIP_SPEED)
                 self.kinematics.pos[7] = max(0, min(4095, self.kinematics.pos[7]))
@@ -124,7 +127,7 @@ class RobotServer:
 
         coords, _ = self.kinematics.get_kinematics(self.kinematics.pos)
         
-        # Przygotowanie pełnej paczki dla Servos (włączając ID 2, wyliczane z ID 1)
+        # Przygotowanie pakietu serw (włączając ID 2)
         servos_payload = []
         for s_id in [0, 1, 2, 3, 4, 5, 6, 7]:
             if s_id == 2:
@@ -165,7 +168,7 @@ class RobotServer:
                 except zmq.Again:
                     pass
 
-                # 2. Parsowanie Logów Szeregowych z ESP32
+                # 2. Parsowanie Logów Szeregowych
                 esp_logs = self.serial.read_telemetry()
                 if esp_logs:
                     for line in esp_logs:
@@ -185,13 +188,11 @@ class RobotServer:
                             except Exception:
                                 pass
                         elif "[STAT]" not in line:
-                            # Tylko inne, prawdziwe logi lądują w oknie konsoli
+                            # Do GUI trafiają tylko "czyste" logi bez zaspamowanych statusów
                             self.sys_logs.append(line)
 
-                # 3. Telemetria do GUI
                 self.broadcast_telemetry()
 
-                # 4. Obsługa pada
                 try:
                     msg = self.socket.recv_json(flags=zmq.NOBLOCK)
                     reply = self.process_request(msg)

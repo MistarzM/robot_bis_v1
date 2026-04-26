@@ -18,7 +18,9 @@ def start_chassis():
     try:
         chassis = serial.Serial(config.CHASSIS_PORT, config.CHASSIS_BAUD, timeout=0.01)
         time.sleep(2)
-        print("[CHASSIS] Connected and ready.")
+        # Wymuszenie ciągłego wysyłania telemetrii przez kontroler UGV02!
+        chassis.write((json.dumps({"T": 605, "cmd": 2}) + "\n").encode())
+        print("[CHASSIS] Connected and continuous telemetry enabled.")
     except Exception as e:
         print(f"[CHASSIS ERROR] {e}")
         return
@@ -30,18 +32,24 @@ def start_chassis():
 
     try:
         while True:
-            # 1. Nasłuch Portu Szeregowego z UGV02 (aktualizuje zmienną last_v)
+            # 1. Odczyt logów z platformy jeżdżącej
             if chassis.in_waiting > 0:
                 line = chassis.readline().decode('utf-8', errors='ignore').strip()
-                if "V" in line: 
+                if line.startswith('{'): 
                     try:
                         data = json.loads(line)
+                        # Waveshare może używać dużego lub małego 'V' w zależności od wersji softu
                         if "V" in data:
                             last_v = data["V"]
+                        elif "v" in data:
+                            last_v = data["v"]
                     except: 
                         pass
+                elif line:
+                    # Jeśli UGV wysyła coś poza JSONem (np. błąd), rzucamy to do terminala na Malince
+                    print(f"[CHASSIS RAW] {line}")
 
-            # 2. Nasłuch Komend (Aktualizuje jazdę i status)
+            # 2. Nasłuch komend jazdy
             try:
                 msg = sub_socket.recv_json(flags=zmq.NOBLOCK)
                 pad = msg.get("pad", {})
@@ -69,13 +77,14 @@ def start_chassis():
             except zmq.Again:
                 pass 
                 
-            # 3. Stałe nadawanie do Mózgu (nawet jeśli napięcie się nie odświeżyło sprzętowo)
-            if time.time() - last_telem_send > 0.1: # 10 FPS
+            # 3. Wysyłanie statusu podwozia do głównego mózgu
+            if time.time() - last_telem_send > 0.1: # 10 Hz odświeżania na ekranie
                 pub_socket.send_json({"voltage": last_v, "status": current_status})
                 last_telem_send = time.time()
                 
     finally:
         print("[CHASSIS] Shutting down...")
+        chassis.write((json.dumps({"T": 13, "X": 0.0, "Z": 0.0}) + "\n").encode())
         chassis.close()
         sub_socket.close()
         pub_socket.close()

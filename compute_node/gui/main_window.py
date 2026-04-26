@@ -173,7 +173,7 @@ class MainWindow(QMainWindow):
     def process_telemetry(self, data):
         # 1. Update Mode
         mode = data.get("mode", "UNKNOWN")
-        colors = {"XYZ": "#204a87", "ORIENTATION": "#c4a000", "DRIVING": "#cc0000", "AUTONOMOUS": "#4e9a06"}
+        colors = {"XYZ": "#204a87", "YPR": "#c4a000", "DRIVING": "#cc0000", "AUTONOMOUS": "#4e9a06"}
         self.lbl_mode.setText(f"[{mode}]")
         self.lbl_mode.setStyleSheet(f"font-size: 22px; font-weight: bold; padding: 5px; border-radius: 5px; background-color: {colors.get(mode, '#555')}; color: #fff;")
         
