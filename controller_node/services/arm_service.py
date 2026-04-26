@@ -114,7 +114,7 @@ class RobotServer:
 
     def start(self):
         self.serial.connect()
-        print(f"[NET] Server is running on port {config.ZMQ_ARM_PORT}. Waiting for laptop...")
+        print(f"[NET] Server is running on port {config.ZMQ_CONTROL_PORT}. Waiting for laptop...")
         
         try:
             while True:
