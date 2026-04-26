@@ -9,14 +9,13 @@ class Esp32Serial:
 
     def connect(self):
         try:
-            self.ser = serial.Serial(config.PORT, config.BAUD, timeout=0.1)
+            self.ser = serial.Serial(config.ARM_PORT, config.ARM_BAUD, timeout=0.1)
             time.sleep(2)
             self.is_connected = True
         except Exception:
             self.is_connected = False
 
     def read_telemetry(self):
-        # TWORZYMY LISTĘ LOGÓW ZAMIAST TYLKO PRINTOWAĆ
         logs = []
         if self.is_connected and self.ser.in_waiting > 0:
             while self.ser.in_waiting > 0:

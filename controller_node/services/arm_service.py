@@ -13,7 +13,12 @@ class RobotServer:
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
         self.socket.setsockopt(zmq.LINGER, 0)
-        self.socket.bind(f"tcp://0.0.0.0:{config.ZMQ_PORT}")
+        self.socket.bind(f"tcp://0.0.0.0:{config.ZMQ_ARM_PORT}")
+        
+        # Local PUB socket to broadcast gamepad data to chassis_service
+        self.pub_context = zmq.Context()
+        self.pub_socket = self.pub_context.socket(zmq.PUB)
+        self.pub_socket.bind(f"tcp://127.0.0.1:{config.ZMQ_LOCAL_PORT}")
         
         _, initial_pose = self.kinematics.get_kinematics(self.kinematics.pos)
         self.target_pose = list(initial_pose)
@@ -21,7 +26,6 @@ class RobotServer:
         self.is_homing = False
         self.stat_btn_pressed = False
         
-        # BUFOR NA LOGI
         self.sys_logs = []
 
     def perform_homing(self):
@@ -59,6 +63,9 @@ class RobotServer:
                 if pad.get('btn_triangle'): self.current_mode = "ORIENTATION"
                 if pad.get('btn_circle'): self.current_mode = "DRIVING"
                 if pad.get('btn_cross'): self.current_mode = "AUTONOMOUS"
+
+                # Broadcast gamepad state and mode to local services
+                self.pub_socket.send_json({"pad": pad, "mode": self.current_mode})
 
                 if self.current_mode == "XYZ":
                     self.target_pose[0] -= pad.get('ly', 0) * config.SPEED_LINEAR
@@ -100,20 +107,19 @@ class RobotServer:
             "target": [float(t) for t in self.target_pose],
             "mode": self.current_mode,
             "servos": [int(self.kinematics.pos[i]) for i in [0, 1, 3, 4, 5, 6, 7]],
-            "logs": self.sys_logs.copy() # Odsyłamy wszystko, co uzbieraliśmy!
+            "logs": self.sys_logs.copy() 
         }
-        self.sys_logs.clear() # Czyścimy bufor po wysłaniu
+        self.sys_logs.clear()
         return reply
 
     def start(self):
         self.serial.connect()
-        print(f"[NET] Server is running on port {config.ZMQ_PORT}. Waiting for laptop...")
+        print(f"[NET] Server is running on port {config.ZMQ_ARM_PORT}. Waiting for laptop...")
         
         try:
             while True:
                 msg = self.socket.recv_json()
                 
-                # Odczytaj z portu USB i wrzuć do bufora logów
                 esp_logs = self.serial.read_telemetry()
                 if esp_logs:
                     self.sys_logs.extend(esp_logs)
@@ -134,6 +140,8 @@ class RobotServer:
             self.serial.disconnect()
             self.socket.close()
             self.context.term()
+            self.pub_socket.close()
+            self.pub_context.term()
 
 if __name__ == "__main__":
     server = RobotServer()

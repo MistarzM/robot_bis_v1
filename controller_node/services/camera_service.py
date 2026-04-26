@@ -8,13 +8,13 @@ def start_camera_stream():
     socket = context.socket(zmq.PUB)
     socket.setsockopt(zmq.LINGER, 0)
     
-    socket.bind(f"tcp://0.0.0.0:{config.VIDEO_PORT}")
+    socket.bind(f"tcp://0.0.0.0:{config.ZMQ_VIDEO_PORT}")
     
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     
-    print(f"[VIDEO] Camera streamer started on port {config.VIDEO_PORT}.")
+    print(f"[VIDEO] Camera streamer started on port {config.ZMQ_VIDEO_PORT}.")
 
     try:
         while True:
