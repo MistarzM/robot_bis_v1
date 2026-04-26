@@ -11,22 +11,23 @@ class RobotServer:
         self.serial = Esp32Serial()
         
         self.context = zmq.Context()
-        # 1. Gniazdo do sterowania (tylko szybkie komendy)
+        
+        # 1. External: Control commands from Laptop
         self.socket = self.context.socket(zmq.REP)
         self.socket.setsockopt(zmq.LINGER, 0)
         self.socket.bind(f"tcp://0.0.0.0:{config.ZMQ_CONTROL_PORT}")
         
-        # 2. Nadajnik lokalny (do podwozia)
+        # 2. Local: Broadcast commands to Chassis
         self.pub_context = zmq.Context()
         self.pub_socket = self.pub_context.socket(zmq.PUB)
-        self.pub_socket.bind(f"tcp://127.0.0.1:{config.ZMQ_LOCAL_PORT}")
+        self.pub_socket.bind(f"tcp://127.0.0.1:{config.ZMQ_LOCAL_COMMANDS}")
 
-        # 3. Odbiornik od podwozia (Bateria itp.)
+        # 3. Local: Receive telemetry from Chassis
         self.chassis_sub = self.context.socket(zmq.SUB)
-        self.chassis_sub.connect(f"tcp://127.0.0.1:{config.ZMQ_CHASSIS_FEEDBACK_PORT}")
+        self.chassis_sub.connect(f"tcp://127.0.0.1:{config.ZMQ_LOCAL_TELEMETRY}")
         self.chassis_sub.setsockopt_string(zmq.SUBSCRIBE, "")
         
-        # 4. NOWY NADAJNIK GLOBALNY (Feedback do Laptopa)
+        # 4. External: Broadcast full robot state to Laptop
         self.feedback_pub = self.context.socket(zmq.PUB)
         self.feedback_pub.bind(f"tcp://0.0.0.0:{config.ZMQ_FEEDBACK_PORT}")
         
@@ -73,6 +74,7 @@ class RobotServer:
                 if pad.get('btn_circle'): self.current_mode = "DRIVING"
                 if pad.get('btn_cross'): self.current_mode = "AUTONOMOUS"
 
+                # Broadcast to local components (Chassis)
                 self.pub_socket.send_json({"pad": pad, "mode": self.current_mode})
 
                 if self.current_mode == "XYZ":
@@ -102,11 +104,9 @@ class RobotServer:
                 else:
                     self.kinematics.solve_ik(self.target_pose)
 
-        # Czysta odpowiedź tylko dla pętli kontrolnej
         return {"status": "OK"}
 
     def broadcast_telemetry(self):
-        # Automatyczne odpytywanie ESP32 co 1 sekundę
         if time.time() - self.last_stat_request > 1.0:
             self.serial.request_stat()
             self.last_stat_request = time.time()
@@ -117,7 +117,7 @@ class RobotServer:
             "node_status": "ACTIVE",
             "arm_status": self.arm_status,
             "chassis_status": self.last_chassis_telemetry.get("status", "OFFLINE"),
-            "camera_status": "ACTIVE", # Możemy to w przyszłości sprawdzać
+            "camera_status": "ACTIVE",
             "coords": [[float(val) for val in point] for point in coords],
             "target": [float(t) for t in self.target_pose],
             "mode": self.current_mode,
@@ -134,23 +134,22 @@ class RobotServer:
         
         try:
             while True:
-                # 1. Odbierz ewentualną paczkę od podwozia
+                # 1. Fetch Local Telemetry
                 try:
                     self.last_chassis_telemetry = self.chassis_sub.recv_json(flags=zmq.NOBLOCK)
                     self.last_chassis_telemetry["status"] = "ACTIVE"
                 except zmq.Again:
                     pass
 
-                # 2. Przeczytaj logi z portu szeregowego
+                # 2. Fetch Serial Logs
                 esp_logs = self.serial.read_telemetry()
                 if esp_logs:
-                    # Tutaj w przyszłości można parsować temperaturę/volty i wyciągać je z logów do zmiennych
                     self.sys_logs.extend(esp_logs)
 
-                # 3. Wypuść w świat ciągłą telemetrię
+                # 3. Broadcast Global Telemetry
                 self.broadcast_telemetry()
 
-                # 4. Obsługa szybkiego portu sterowania
+                # 4. Process Fast Control Port
                 try:
                     msg = self.socket.recv_json(flags=zmq.NOBLOCK)
                     reply = self.process_request(msg)
@@ -158,7 +157,7 @@ class RobotServer:
                         self.serial.send_positions(self.kinematics.pos)
                     self.socket.send_json(reply)
                 except zmq.Again:
-                    pass # Brak komend z pada w tej ułamku sekundy
+                    pass
                 
                 time.sleep(0.01)
 

@@ -4,20 +4,17 @@ import json
 import time
 from core import config
 
-# Local port exclusively for Chassis -> Arm communication
-LOCAL_CHASSIS_FEEDBACK_PORT = "5559"
-
 def start_chassis():
     context = zmq.Context()
     
-    # Listen for gamepad commands from Arm
+    # Listen for local commands from Arm
     sub_socket = context.socket(zmq.SUB)
-    sub_socket.connect(f"tcp://127.0.0.1:{config.ZMQ_LOCAL_PORT}")
+    sub_socket.connect(f"tcp://127.0.0.1:{config.ZMQ_LOCAL_COMMANDS}")
     sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
-    # Broadcast telemetry (battery) back to Arm
+    # Broadcast local telemetry (battery) back to Arm
     pub_socket = context.socket(zmq.PUB)
-    pub_socket.bind(f"tcp://127.0.0.1:{LOCAL_CHASSIS_FEEDBACK_PORT}")
+    pub_socket.bind(f"tcp://127.0.0.1:{config.ZMQ_LOCAL_TELEMETRY}")
 
     print(f"[CHASSIS] Connecting to UGV02 on {config.CHASSIS_PORT}...")
     try:
@@ -32,7 +29,7 @@ def start_chassis():
 
     try:
         while True:
-            # 1. Read Telemetry from UGV02
+            # 1. Read Hardware Telemetry
             if chassis.in_waiting > 0:
                 line = chassis.readline().decode('utf-8', errors='ignore').strip()
                 if line.startswith('{'): 
@@ -42,14 +39,13 @@ def start_chassis():
                     except: 
                         pass
 
-            # 2. Process Commands (Single Stick Arcade Drive)
+            # 2. Process Local Commands
             try:
                 msg = sub_socket.recv_json(flags=zmq.NOBLOCK)
                 pad = msg.get("pad", {})
                 mode = msg.get("mode", "")
 
                 if mode == "DRIVING" and pad.get("connected"):
-                    # Single stick logic: Left Stick handles both linear (ly) and angular (lx)
                     drive_x = -pad.get("ly", 0.0) * config.CHASSIS_MAX_SPEED
                     drive_z = -pad.get("lx", 0.0) * config.CHASSIS_MAX_SPEED
 
