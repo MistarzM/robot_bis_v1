@@ -161,6 +161,12 @@ class RobotServer:
         self.serial.connect()
         print(f"[NET] Control: {config.ZMQ_CONTROL_PORT} | Feedback: {config.ZMQ_FEEDBACK_PORT}")
         
+        # FIX: Dajemy ESP32 2 sekundy na zbootowanie się po otwarciu portu USB
+        print("[INFO] Waiting for ESP32 to boot up...")
+        time.sleep(2.0)
+        self.serial.request_stat() # Wymuszamy pierwszy odczyt natychmiast
+        print("[INFO] ESP32 Ready. Starting main loop.")
+        
         try:
             while True:
                 try:
@@ -171,7 +177,6 @@ class RobotServer:
                 esp_logs = self.serial.read_telemetry()
                 if esp_logs:
                     for line in esp_logs:
-                        # WYŁAPYWANIE BŁĘDU ZASILANIA / BRAKU POŁĄCZENIA
                         if "NOT FOUND" in line:
                             id_m = re.search(r'ID (\d+)', line)
                             if id_m:
@@ -181,10 +186,8 @@ class RobotServer:
                                     self.servo_stats[s_id]['temp'] = '--'
                                     self.servo_stats[s_id]['volt'] = '--'
                                     self.servo_stats[s_id]['curr'] = '--'
-                            # Zostawiamy błąd w logach GUI, żeby użytkownik to widział
                             self.sys_logs.append(line)
                             
-                        # ODCZYT PRAWIDŁOWYCH DANYCH
                         elif "Temp:" in line and "Volt:" in line:
                             try:
                                 id_m = re.search(r'ID (\d+)', line)
@@ -195,7 +198,7 @@ class RobotServer:
                                 if id_m:
                                     s_id = int(id_m.group(1))
                                     if s_id in self.servo_stats:
-                                        self.servo_stats[s_id]['status'] = 'OK' # Kasujemy błąd po odzyskaniu łączności
+                                        self.servo_stats[s_id]['status'] = 'OK' 
                                         self.servo_stats[s_id]['temp'] = temp_m.group(1) if temp_m else '--'
                                         self.servo_stats[s_id]['volt'] = volt_m.group(1) if volt_m else '--'
                                         self.servo_stats[s_id]['curr'] = curr_m.group(1) if curr_m else '--'

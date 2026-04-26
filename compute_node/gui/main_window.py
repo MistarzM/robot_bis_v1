@@ -200,7 +200,7 @@ class MainWindow(QMainWindow):
             for i, pt in enumerate(pts):
                 self.coord_labels[pt].setText(f"X: {coords[i][0]:>5.1f} | Y: {coords[i][1]:>5.1f} | Z: {coords[i][2]:>5.1f}")
 
-        # 4. Dashboard z danymi o serwach (Z AKTUALIZACJĄ BŁĘDÓW)
+        # 4. Dashboard z danymi o serwach (Uproszczone Statusy)
         servos = data.get("servos", [])
         if len(servos) == len(self.servo_data):
             for i, s_data in enumerate(servos):
@@ -209,15 +209,14 @@ class MainWindow(QMainWindow):
                 self.servo_data[i]["vol"].setText(f"{s_data['volt']} V" if s_data['volt'] != '--' else "-- V")
                 self.servo_data[i]["curr"].setText(f"{s_data['curr']} mA" if s_data['curr'] != '--' else "-- mA")
                 
-                # Odczyt prawdziwego statusu z ESP32
                 hw_status = s_data.get('status', 'OK')
                 
                 if hw_status == 'ERROR':
                     self.servo_data[i]["stat"].setText("OFFLINE")
-                    self.servo_data[i]["stat"].setStyleSheet("color: #ff5555; font-weight: bold;") # Jasnoczerwony
+                    self.servo_data[i]["stat"].setStyleSheet("color: #ff5555; font-weight: bold;")
                 else:
                     if arm_s == "IDLE":
-                        self.servo_data[i]["stat"].setText("READY")
+                        self.servo_data[i]["stat"].setText("IDLE")
                         self.servo_data[i]["stat"].setStyleSheet("color: gray;")
                     else:
                         self.servo_data[i]["stat"].setText("ACTIVE")
