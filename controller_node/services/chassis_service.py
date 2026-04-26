@@ -4,63 +4,74 @@ import json
 import time
 from core import config
 
+# Local port exclusively for Chassis -> Arm communication
+LOCAL_CHASSIS_FEEDBACK_PORT = "5559"
+
 def start_chassis():
-    # Setup internal subscriber to listen for gamepad data from arm_service
     context = zmq.Context()
-    socket = context.socket(zmq.SUB)
-    socket.connect(f"tcp://127.0.0.1:{config.ZMQ_LOCAL_PORT}")
-    socket.setsockopt_string(zmq.SUBSCRIBE, "")
+    
+    # Listen for gamepad commands from Arm
+    sub_socket = context.socket(zmq.SUB)
+    sub_socket.connect(f"tcp://127.0.0.1:{config.ZMQ_LOCAL_PORT}")
+    sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")
+
+    # Broadcast telemetry (battery) back to Arm
+    pub_socket = context.socket(zmq.PUB)
+    pub_socket.bind(f"tcp://127.0.0.1:{LOCAL_CHASSIS_FEEDBACK_PORT}")
 
     print(f"[CHASSIS] Connecting to UGV02 on {config.CHASSIS_PORT}...")
     try:
-        chassis = serial.Serial(config.CHASSIS_PORT, config.CHASSIS_BAUD, timeout=0.1)
+        chassis = serial.Serial(config.CHASSIS_PORT, config.CHASSIS_BAUD, timeout=0.01)
         time.sleep(2)
-        print("[CHASSIS] Connected to platform successfully.")
+        print("[CHASSIS] Connected and ready.")
     except Exception as e:
-        print(f"[CHASSIS ERROR] Port failed: {e}")
+        print(f"[CHASSIS ERROR] {e}")
         return
-
-    def drive(x, z):
-        cmd = {"T": 13, "X": x, "Z": z}
-        try:
-            chassis.write((json.dumps(cmd) + "\n").encode('utf-8'))
-        except Exception:
-            pass
 
     was_moving = False
 
     try:
         while True:
-            msg = socket.recv_json()
-            pad = msg.get("pad", {})
-            mode = msg.get("mode", "")
+            # 1. Read Telemetry from UGV02
+            if chassis.in_waiting > 0:
+                line = chassis.readline().decode('utf-8', errors='ignore').strip()
+                if line.startswith('{'): 
+                    try:
+                        data = json.loads(line)
+                        pub_socket.send_json({"voltage": data.get("V", 0.0)})
+                    except: 
+                        pass
 
-            if mode == "DRIVING" and pad.get("connected"):
-                # Calculate speeds (invert axis for natural driving feel)
-                drive_x = -pad.get("ly", 0.0) * config.CHASSIS_MAX_SPEED
-                drive_z = -pad.get("rx", 0.0) * config.CHASSIS_MAX_SPEED
+            # 2. Process Commands (Single Stick Arcade Drive)
+            try:
+                msg = sub_socket.recv_json(flags=zmq.NOBLOCK)
+                pad = msg.get("pad", {})
+                mode = msg.get("mode", "")
 
-                # Deadzone check
-                if abs(drive_x) > 0.05 or abs(drive_z) > 0.05:
-                    drive(drive_x, drive_z)
-                    was_moving = True
+                if mode == "DRIVING" and pad.get("connected"):
+                    # Single stick logic: Left Stick handles both linear (ly) and angular (lx)
+                    drive_x = -pad.get("ly", 0.0) * config.CHASSIS_MAX_SPEED
+                    drive_z = -pad.get("lx", 0.0) * config.CHASSIS_MAX_SPEED
+
+                    if abs(drive_x) > 0.05 or abs(drive_z) > 0.05:
+                        chassis.write((json.dumps({"T": 13, "X": drive_x, "Z": drive_z}) + "\n").encode())
+                        was_moving = True
+                    elif was_moving:
+                        chassis.write((json.dumps({"T": 13, "X": 0.0, "Z": 0.0}) + "\n").encode())
+                        was_moving = False
                 else:
                     if was_moving:
-                        drive(0.0, 0.0)
+                        chassis.write((json.dumps({"T": 13, "X": 0.0, "Z": 0.0}) + "\n").encode())
                         was_moving = False
-            else:
-                # Safety stop when switching modes
-                if was_moving:
-                    drive(0.0, 0.0)
-                    was_moving = False
-                    
-    except KeyboardInterrupt:
-        pass
+                        
+            except zmq.Again:
+                pass 
+                
     finally:
         print("[CHASSIS] Shutting down...")
-        drive(0.0, 0.0)
         chassis.close()
-        socket.close()
+        sub_socket.close()
+        pub_socket.close()
         context.term()
 
 if __name__ == "__main__":

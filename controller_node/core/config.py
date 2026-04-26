@@ -4,6 +4,7 @@ import math
 ZMQ_CONTROL_PORT = "5555"       
 ZMQ_VIDEO_PORT = "5556"     
 ZMQ_LOCAL_PORT = "5557"     
+ZMQ_FEEDBACK_PORT = "5558"
 
 # --- ARM CONFIGURATION ---
 ARM_PORT = '/dev/ttyUSB0'   

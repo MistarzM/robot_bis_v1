@@ -1,201 +1,229 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QTextEdit
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QTextEdit, QGridLayout
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
-from gui.network_worker import NetworkWorker, VideoWorker
+from gui.network_worker import NetworkWorker, VideoWorker, TelemetryWorker
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("UGV02 - 6DOF Command Center")
-        # Startujemy z dużym oknem (zoptymalizowane pod FullHD/Macbooka)
-        self.resize(1200, 800) 
-        self.setStyleSheet("font-size: 14px;")
+        self.setWindowTitle("UGV02 - Compute Node Command Center")
+        self.resize(1200, 850) 
+        self.setStyleSheet("font-size: 13px; font-family: 'Menlo', 'Courier New', monospace;")
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        
-        # GŁÓWNY UKŁAD POZIOMY (Dwie kolumny)
         self.main_layout = QHBoxLayout(central_widget)
         
         self.left_column = QVBoxLayout()
         self.right_column = QVBoxLayout()
         
-        # Budowa Lewej Kolumny
         self._build_mode_panel(self.left_column)
-        self._build_status_panel(self.left_column)
+        self._build_system_status_panel(self.left_column)
         self._build_spatial_panel(self.left_column) 
-        self._build_telemetry_panel(self.left_column)
-        self._build_chassis_placeholder(self.left_column)
+        self._build_servo_status_panel(self.left_column)
+        self._build_chassis_stats(self.left_column)
         self.left_column.addStretch()
 
-        # Budowa Prawej Kolumny
         self._build_camera_panel(self.right_column)
         self._build_console_panel(self.right_column)
 
-        # Dodanie kolumn do głównego okna (lewa zajmuje 1 część, prawa 2 części)
         self.main_layout.addLayout(self.left_column, 1)
         self.main_layout.addLayout(self.right_column, 2)
 
-        # Uruchomienie wątków (Kontrola + Wideo)
+        # 1. Worker do komend z Pada (Port 5555)
         self.worker = NetworkWorker()
-        self.worker.status_signal.connect(self.update_statuses)
-        self.worker.telemetry_signal.connect(self.update_telemetry)
-        self.worker.coords_signal.connect(self.update_coords) 
-        self.worker.mode_signal.connect(self.update_target_ui)
-        self.worker.log_signal.connect(self.append_logs)
+        self.worker.status_signal.connect(self.update_pad_status)
         self.worker.start()
 
+        # 2. Worker do ciągłej Telemetrii (Port 5558)
+        self.telemetry_worker = TelemetryWorker()
+        self.telemetry_worker.feedback_signal.connect(self.process_telemetry)
+        self.telemetry_worker.start()
+
+        # 3. Worker do Wideo (Port 5556)
         self.video_worker = VideoWorker()
         self.video_worker.frame_signal.connect(self.update_camera_frame)
         self.video_worker.start()
 
-    def _build_mode_panel(self, parent_layout):
-        mode_group = QGroupBox("Active Control Mode")
-        mode_layout = QVBoxLayout()
-        self.lbl_mode = QLabel("LOADING...")
+    def _build_mode_panel(self, parent):
+        group = QGroupBox("Active Control Mode")
+        layout = QVBoxLayout()
+        self.lbl_mode = QLabel("[WAITING FOR DATA]")
         self.lbl_mode.setAlignment(Qt.AlignCenter)
-        self.lbl_mode.setStyleSheet("font-size: 24px; font-weight: bold; padding: 10px; border-radius: 5px;")
-        mode_layout.addWidget(self.lbl_mode)
-        mode_group.setLayout(mode_layout)
-        parent_layout.addWidget(mode_group)
+        self.lbl_mode.setStyleSheet("font-size: 22px; font-weight: bold; padding: 5px; border-radius: 5px; background: #333;")
+        layout.addWidget(self.lbl_mode)
+        group.setLayout(layout)
+        parent.addWidget(group)
 
-    def _build_status_panel(self, parent_layout):
-        status_group = QGroupBox("System Status")
-        status_layout = QHBoxLayout()
-        self.lbl_gamepad = QLabel("Gamepad: DISCONNECTED")
-        self.lbl_gamepad.setStyleSheet("color: red; font-weight: bold;")
-        self.lbl_robot = QLabel("Robot Link: WAITING...")
-        self.lbl_robot.setStyleSheet("color: orange; font-weight: bold;")
-        status_layout.addWidget(self.lbl_gamepad)
-        status_layout.addWidget(self.lbl_robot)
-        status_group.setLayout(status_layout)
-        parent_layout.addWidget(status_group)
+    def _build_system_status_panel(self, parent):
+        group = QGroupBox("System Status")
+        layout = QGridLayout()
+        
+        self.status_labels = {
+            "pad": QLabel("Gamepad: DISC"),
+            "node": QLabel("Controller Node: WAIT"),
+            "arm": QLabel("Arm: WAIT"),
+            "chassis": QLabel("Chassis: WAIT")
+        }
+        
+        layout.addWidget(self.status_labels["pad"], 0, 0)
+        layout.addWidget(self.status_labels["node"], 0, 1)
+        layout.addWidget(self.status_labels["arm"], 1, 0)
+        layout.addWidget(self.status_labels["chassis"], 1, 1)
+        
+        for lbl in self.status_labels.values():
+            lbl.setStyleSheet("color: orange; font-weight: bold;")
+            
+        group.setLayout(layout)
+        parent.addWidget(group)
 
-    def _build_spatial_panel(self, parent_layout):
-        spatial_group = QGroupBox("Task Space & IK Target")
-        spatial_layout = QVBoxLayout()
+    def _build_spatial_panel(self, parent):
+        group = QGroupBox("Task Space & IK Target")
+        layout = QVBoxLayout()
         self.coord_labels = {}
         
-        self.lbl_target = QLabel("TARGET: X: 0.0 | Y: 0.0 | Z: 0.0 | Yaw: 0.00 | Pitch: 0.00 | Roll: 0.00")
-        self.lbl_target.setStyleSheet("font-family: 'Menlo', 'Courier New', monospace; color: #ff5555; font-weight: bold; background: #222; padding: 5px;")
-        spatial_layout.addWidget(self.lbl_target)
+        self.lbl_target = QLabel("TARGET: X:0 Y:0 Z:0 | Yaw:0 Pitch:0 Roll:0")
+        self.lbl_target.setStyleSheet("color: #ff5555; font-weight: bold; background: #222; padding: 4px;")
+        layout.addWidget(self.lbl_target)
         
-        points = ["Shoulder", "Elbow", "Wrist", "Gripper (EE)"]
+        points = ["Shoulder", "Elbow", "Wrist", "Gripper"]
         for point in points:
             row = QHBoxLayout()
             name = QLabel(f"{point}:")
-            name.setFixedWidth(100)
+            name.setFixedWidth(80)
             val = QLabel("X: 0.0 | Y: 0.0 | Z: 0.0")
-            val.setStyleSheet("font-family: 'Menlo', 'Courier New', monospace; color: cyan; font-weight: bold;")
+            val.setStyleSheet("color: cyan; font-weight: bold;")
             row.addWidget(name)
             row.addWidget(val)
-            spatial_layout.addLayout(row)
+            layout.addLayout(row)
             self.coord_labels[point] = val
-            
-        spatial_group.setLayout(spatial_layout)
-        parent_layout.addWidget(spatial_group)
+        group.setLayout(layout)
+        parent.addWidget(group)
         
-    def _build_telemetry_panel(self, parent_layout):
-        telemetry_group = QGroupBox("Joint Space (Raw Values 0-4095)")
-        telemetry_layout = QVBoxLayout()
-        self.servo_labels = []
-        servo_names = ["Base (0)", "Shoulder L (1)", "Upperarm (3)", 
-                       "Forearm (4)", "Wrist Pitch (5)", "Wrist Roll (6)", "Gripper (7)"]
-        for name in servo_names:
-            row_layout = QHBoxLayout()
-            name_label = QLabel(f"{name}:")
-            name_label.setFixedWidth(120)
-            value_label = QLabel("0")
-            value_label.setStyleSheet("font-family: 'Menlo', 'Courier New', monospace; font-weight: bold;")
-            row_layout.addWidget(name_label)
-            row_layout.addWidget(value_label)
-            row_layout.addStretch()
-            telemetry_layout.addLayout(row_layout)
-            self.servo_labels.append(value_label)
-        telemetry_group.setLayout(telemetry_layout)
-        parent_layout.addWidget(telemetry_group)
+    def _build_servo_status_panel(self, parent):
+        group = QGroupBox("Servo Status Dashboard")
+        layout = QGridLayout()
+        
+        # Headers
+        headers = ["ID", "Position", "Temp", "Volt", "Status"]
+        for col, text in enumerate(headers):
+            lbl = QLabel(text)
+            lbl.setStyleSheet("color: #888; font-weight: bold;")
+            layout.addWidget(lbl, 0, col)
+            
+        self.servo_data = []
+        names = ["Bse(0)", "ShL(1)", "UAr(3)", "For(4)", "WPi(5)", "WRo(6)", "Grp(7)"]
+        
+        for row, name in enumerate(names, start=1):
+            row_data = {
+                "name": QLabel(name),
+                "pos": QLabel("0"),
+                "temp": QLabel("-- °C"), # Gotowe na parsowanie z ESP32
+                "vol": QLabel("-- V"),
+                "stat": QLabel("OK")
+            }
+            layout.addWidget(row_data["name"], row, 0)
+            layout.addWidget(row_data["pos"], row, 1)
+            layout.addWidget(row_data["temp"], row, 2)
+            layout.addWidget(row_data["vol"], row, 3)
+            layout.addWidget(row_data["stat"], row, 4)
+            self.servo_data.append(row_data)
+            
+        group.setLayout(layout)
+        parent.addWidget(group)
 
-    def _build_chassis_placeholder(self, parent_layout):
-        chassis_group = QGroupBox("Chassis Stats (Placeholder)")
-        chassis_layout = QVBoxLayout()
-        lbl1 = QLabel("Battery: N/A")
-        lbl2 = QLabel("Speed: 0.0 m/s")
-        lbl3 = QLabel("Heading: 0°")
-        chassis_layout.addWidget(lbl1)
-        chassis_layout.addWidget(lbl2)
-        chassis_layout.addWidget(lbl3)
-        chassis_group.setLayout(chassis_layout)
-        parent_layout.addWidget(chassis_group)
+    def _build_chassis_stats(self, parent):
+        group = QGroupBox("Chassis Stats")
+        layout = QHBoxLayout()
+        self.lbl_battery = QLabel("Battery: WAIT")
+        self.lbl_battery.setStyleSheet("font-size: 16px; font-weight: bold; color: yellow;")
+        layout.addWidget(self.lbl_battery)
+        group.setLayout(layout)
+        parent.addWidget(group)
 
-    def _build_camera_panel(self, parent_layout):
-        camera_group = QGroupBox("Live Video Feed")
-        camera_layout = QVBoxLayout()
-        self.lbl_camera = QLabel("Waiting for video stream on port 5556...")
+    def _build_camera_panel(self, parent):
+        group = QGroupBox("Live Video Feed")
+        layout = QVBoxLayout()
+        self.lbl_camera = QLabel("Waiting for stream...")
         self.lbl_camera.setAlignment(Qt.AlignCenter)
-        self.lbl_camera.setStyleSheet("background-color: #000; color: #fff; font-weight: bold;")
-        # Minimalna wysokość kamery, żeby nie zniknęła
+        self.lbl_camera.setStyleSheet("background-color: #000; color: #fff;")
         self.lbl_camera.setMinimumHeight(400)
-        camera_layout.addWidget(self.lbl_camera)
-        camera_group.setLayout(camera_layout)
-        # Kamera zajmie 60% prawej kolumny
-        parent_layout.addWidget(camera_group, 6)
+        layout.addWidget(self.lbl_camera)
+        group.setLayout(layout)
+        parent.addWidget(group, 6)
 
-    def _build_console_panel(self, parent_layout):
-        console_group = QGroupBox("System Output / Logs")
-        console_layout = QVBoxLayout()
+    def _build_console_panel(self, parent):
+        group = QGroupBox("System Feedback & Logs")
+        layout = QVBoxLayout()
         self.txt_console = QTextEdit()
         self.txt_console.setReadOnly(True)
-        self.txt_console.setStyleSheet("background-color: #1e1e1e; color: #00ff00; font-family: 'Menlo', 'Courier New', monospace; font-size: 13px;")
-        console_layout.addWidget(self.txt_console)
-        console_group.setLayout(console_layout)
-        # Konsola zajmie 40% prawej kolumny
-        parent_layout.addWidget(console_group, 4)
+        self.txt_console.setStyleSheet("background-color: #1e1e1e; color: #00ff00;")
+        layout.addWidget(self.txt_console)
+        group.setLayout(layout)
+        parent.addWidget(group, 4)
+
+    def update_pad_status(self, pad_ok, _):
+        # Robot link is now handled by telemetry
+        self.status_labels["pad"].setText("Gamepad: CONNECTED" if pad_ok else "Gamepad: DISCONNECTED")
+        self.status_labels["pad"].setStyleSheet(f"color: {'#4e9a06' if pad_ok else 'red'}; font-weight: bold;")
 
     def update_camera_frame(self, frame_bytes):
         pixmap = QPixmap()
         pixmap.loadFromData(frame_bytes)
-        # Skalowanie z zachowaniem proporcji do wymiarów okna
         self.lbl_camera.setPixmap(pixmap.scaled(self.lbl_camera.width(), self.lbl_camera.height(), Qt.KeepAspectRatio))
 
-    def update_statuses(self, pad_ok, serial_ok):
-        self.lbl_gamepad.setText("Gamepad: CONNECTED" if pad_ok else "Gamepad: DISCONNECTED")
-        self.lbl_gamepad.setStyleSheet(f"color: {'green' if pad_ok else 'red'}; font-weight: bold;")
-        self.lbl_robot.setText("Robot Link: ACTIVE" if serial_ok else "Robot Link: OFF")
-        self.lbl_robot.setStyleSheet(f"color: {'green' if serial_ok else 'orange'}; font-weight: bold;")
-
-    def update_target_ui(self, t, mode):
-        colors = {
-            "XYZ": ("#204a87", "#ffffff"),         
-            "ORIENTATION": ("#c4a000", "#ffffff"), 
-            "DRIVING": ("#cc0000", "#ffffff"),     
-            "AUTONOMOUS": ("#4e9a06", "#ffffff")   
-        }
-        bg, fg = colors.get(mode, ("#555", "#fff"))
+    def process_telemetry(self, data):
+        # 1. Update Modes & Targets
+        mode = data.get("mode", "UNKNOWN")
+        colors = {"XYZ": "#204a87", "ORIENTATION": "#c4a000", "DRIVING": "#cc0000", "AUTONOMOUS": "#4e9a06"}
         self.lbl_mode.setText(f"[{mode}]")
-        self.lbl_mode.setStyleSheet(f"font-size: 24px; font-weight: bold; padding: 10px; border-radius: 5px; background-color: {bg}; color: {fg};")
+        self.lbl_mode.setStyleSheet(f"font-size: 22px; font-weight: bold; padding: 5px; border-radius: 5px; background-color: {colors.get(mode, '#555')}; color: #fff;")
         
+        t = data.get("target", [0,0,0,0,0,0])
         if len(t) >= 6:
-            self.lbl_target.setText(f"TARGET => X:{t[0]:.0f} | Y:{t[1]:.0f} | Z:{t[2]:.0f} | Yaw:{t[3]:.2f} | Pitch:{t[4]:.2f} | Roll:{t[5]:.2f}")
+            self.lbl_target.setText(f"TARGET: X:{t[0]:.0f} Y:{t[1]:.0f} Z:{t[2]:.0f} | Yaw:{t[3]:.2f} Pitch:{t[4]:.2f} Roll:{t[5]:.2f}")
 
-    def update_coords(self, coords_list):
-        points = ["Shoulder", "Elbow", "Wrist", "Gripper (EE)"]
-        if len(coords_list) >= 4:
-            for i, point in enumerate(points):
-                c = coords_list[i]
-                self.coord_labels[point].setText(f"X: {c[0]:>5.1f} | Y: {c[1]:>5.1f} | Z: {c[2]:>5.1f}")
-            
-    def update_telemetry(self, positions):
-        if len(positions) == len(self.servo_labels):
-            for i in range(len(positions)):
-                self.servo_labels[i].setText(str(int(positions[i])))
+        # 2. System Status
+        self.status_labels["node"].setText(f"Controller: {data.get('node_status')}")
+        self.status_labels["node"].setStyleSheet("color: #4e9a06; font-weight: bold;")
+        
+        arm_s = data.get('arm_status', 'WAIT')
+        self.status_labels["arm"].setText(f"Arm: {arm_s}")
+        self.status_labels["arm"].setStyleSheet(f"color: {'cyan' if arm_s != 'IDLE' else '#4e9a06'}; font-weight: bold;")
+        
+        chas_s = data.get('chassis_status', 'WAIT')
+        self.status_labels["chassis"].setText(f"Chassis: {chas_s}")
+        self.status_labels["chassis"].setStyleSheet(f"color: {'#4e9a06' if chas_s == 'ACTIVE' else 'orange'}; font-weight: bold;")
 
-    def append_logs(self, log_list):
-        for log in log_list:
+        # 3. Spatial Coords
+        coords = data.get("coords", [])
+        if len(coords) >= 4:
+            pts = ["Shoulder", "Elbow", "Wrist", "Gripper"]
+            for i, pt in enumerate(pts):
+                self.coord_labels[pt].setText(f"X: {coords[i][0]:>5.1f} | Y: {coords[i][1]:>5.1f} | Z: {coords[i][2]:>5.1f}")
+
+        # 4. Servo Status Dashboard
+        servos = data.get("servos", [])
+        if len(servos) == len(self.servo_data):
+            for i in range(len(servos)):
+                self.servo_data[i]["pos"].setText(str(servos[i]))
+                # Gdy dodamy parsowanie z ESP32, tutaj podmienimy temp i vol
+                self.servo_data[i]["stat"].setText("RUN" if arm_s != "IDLE" else "OK")
+
+        # 5. Chassis Battery
+        chas_data = data.get("chassis_data", {})
+        volts = chas_data.get("voltage", 0.0)
+        self.lbl_battery.setText(f"Battery: {volts:.2f} V")
+        self.lbl_battery.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {'red' if volts > 0 and volts < 10.5 else '#4e9a06'};")
+
+        # 6. Logs
+        for log in data.get("logs", []):
             self.txt_console.append(log)
-            scrollbar = self.txt_console.verticalScrollBar()
-            scrollbar.setValue(scrollbar.maximum())
+            sb = self.txt_console.verticalScrollBar()
+            sb.setValue(sb.maximum())
 
     def closeEvent(self, event):
         self.worker.stop()
+        self.telemetry_worker.stop()
         self.video_worker.stop()
         event.accept()
