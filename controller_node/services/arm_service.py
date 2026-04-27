@@ -76,13 +76,13 @@ class RobotServer:
             if pad.get("connected") and not self.is_homing:
                 
                 if pad.get('btn_square'): self.current_mode = "XYZ"
-                if pad.get('btn_triangle'): self.current_mode = "YPR"
+                if pad.get('btn_triangle'): self.current_mode = "RPY"  
                 if pad.get('btn_circle'): self.current_mode = "DRIVING"
                 if pad.get('btn_cross'): self.current_mode = "AUTONOMOUS"
 
                 self.pub_socket.send_json({"pad": pad, "mode": self.current_mode})
 
-                if self.current_mode in ["XYZ", "YPR"]:
+                if self.current_mode in ["XYZ", "RPY"]: 
                     moving = abs(pad.get('lx', 0)) > 0.05 or abs(pad.get('ly', 0)) > 0.05 or abs(pad.get('rx', 0)) > 0.05 or abs(pad.get('ry', 0)) > 0.05
                     self.arm_status = f"MOVING ({self.current_mode})" if moving else "ACTIVE"
                     
@@ -91,6 +91,7 @@ class RobotServer:
                         self.target_pose[1] += pad.get('lx', 0) * config.SPEED_LINEAR
                         self.target_pose[2] -= pad.get('ry', 0) * config.SPEED_LINEAR
                     else:
+                        # RPY: effector
                         self.target_pose[3] += pad.get('lx', 0) * config.SPEED_ANGULAR
                         self.target_pose[4] += pad.get('ly', 0) * config.SPEED_ANGULAR
                         self.target_pose[5] -= pad.get('rx', 0) * config.SPEED_ANGULAR

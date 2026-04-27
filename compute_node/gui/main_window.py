@@ -173,13 +173,13 @@ class MainWindow(QMainWindow):
     def process_telemetry(self, data):
         # 1. Update Mode
         mode = data.get("mode", "UNKNOWN")
-        colors = {"XYZ": "#204a87", "YPR": "#c4a000", "DRIVING": "#cc0000", "AUTONOMOUS": "#4e9a06"}
+        colors = {"XYZ": "#204a87", "RPY": "#c4a000", "DRIVING": "#cc0000", "AUTONOMOUS": "#4e9a06"} 
         self.lbl_mode.setText(f"[{mode}]")
         self.lbl_mode.setStyleSheet(f"font-size: 22px; font-weight: bold; padding: 5px; border-radius: 5px; background-color: {colors.get(mode, '#555')}; color: #fff;")
         
         t = data.get("target", [0,0,0,0,0,0])
         if len(t) >= 6:
-            self.lbl_target.setText(f"TARGET: X:{t[0]:.0f} Y:{t[1]:.0f} Z:{t[2]:.0f} | Yaw:{t[3]:.2f} Pitch:{t[4]:.2f} Roll:{t[5]:.2f}")
+            self.lbl_target.setText(f"TARGET: X:{t[0]:.0f} Y:{t[1]:.0f} Z:{t[2]:.0f} | Roll:{t[5]:.2f} Pitch:{t[4]:.2f} Yaw:{t[3]:.2f}")
 
         # 2. System Status
         self.status_labels["node"].setText(f"Controller: {data.get('node_status')}")
@@ -192,7 +192,6 @@ class MainWindow(QMainWindow):
         chas_s = data.get('chassis_status', 'WAIT')
         self.status_labels["chassis"].setText(f"Chassis: {chas_s}")
         self.status_labels["chassis"].setStyleSheet(f"color: {'cyan' if chas_s == 'MOVING' else '#4e9a06' if chas_s == 'ACTIVE' else 'gray'}; font-weight: bold;")
-
         # 3. Spatial Coords
         coords = data.get("coords", [])
         if len(coords) >= 4:
