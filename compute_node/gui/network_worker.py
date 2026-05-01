@@ -8,7 +8,6 @@ from core import config
 from ai_vision.object_detector import YoloDetector
 
 class NetworkWorker(QThread):
-    # Only status signal remains. Telemetry is moved to TelemetryWorker.
     status_signal = Signal(bool, bool)
 
     def __init__(self):
@@ -31,7 +30,6 @@ class NetworkWorker(QThread):
             robot_online = False
             try:
                 self.socket.send_json(payload)
-                # We no longer parse telemetry here, just wait for "OK" to free the socket
                 self.socket.recv_json() 
                 robot_online = True
             except zmq.Again:

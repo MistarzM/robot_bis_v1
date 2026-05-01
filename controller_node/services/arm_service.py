@@ -27,7 +27,7 @@ class RobotServer:
         self.feedback_pub = self.context.socket(zmq.PUB)
         self.feedback_pub.bind(f"tcp://0.0.0.0:{config.ZMQ_FEEDBACK_PORT}")
         
-        _, initial_pose = self.kinematics.get_kinematics(self.kinematics.pos)
+        _, initial_pose = self.kinematics.get_kinematics(config.ELBOW_DOWN_POS)
         self.target_pose = list(initial_pose)
         self.current_mode = "XYZ"
         self.is_homing = False
@@ -39,31 +39,50 @@ class RobotServer:
         
         self.servo_stats = {id: {'temp': '--', 'volt': '--', 'curr': '--', 'status': 'OK'} for id in [0,1,2,3,4,5,6,7]}
 
+    def _get_physical_positions(self):
+        phys_pos = {}
+        max_servo = getattr(config, 'MAX_SERVO', 4095)
+        
+        for s_id in [0, 1, 2, 3, 4, 5, 6, 7]:
+            base_val = config.ELBOW_DOWN_POS.get(s_id, 2048)
+            virt_pos = self.kinematics.pos.get(s_id, base_val)
+            delta = virt_pos - base_val
+            
+            if s_id in [1, 3]:
+                phys_pos[s_id] = base_val - delta
+            else:
+                phys_pos[s_id] = base_val + delta
+                
+            if s_id == 1:
+                phys_pos[2] = config.ELBOW_DOWN_POS.get(2, 2048) + delta
+                
+        phys_pos[7] = max(0, min(max_servo, phys_pos.get(7, 2048)))
+        return phys_pos
+
     def perform_homing(self):
         self.is_homing = True
         self.arm_status = "HOMING"
         self.sys_logs.append("[INFO] Homing sequence started...")
         
-        # Resetowanie statystyk błędów
         for s_id in self.servo_stats:
             self.servo_stats[s_id].update({'temp': '--', 'volt': '--', 'curr': '--', 'status': 'OK'})
             
         self.serial.send_reset()
-        
-        # UWAGA: Restart ESP32 trwa około 2 sekund. Czekamy bezpiecznie 2.5s, 
-        # żeby nie wysłać komend w próżnię zanim mikrokontroler się obudzi!
         time.sleep(2.5) 
         
-        _, home_ee_pose = self.kinematics.get_kinematics(config.HOME_POS)
+        _, home_ee_pose = self.kinematics.get_kinematics(config.ELBOW_DOWN_POS)
         self.target_pose = list(home_ee_pose)
         
         for servo_id in [0, 1, 3, 4, 5, 6, 7]:
-            target = config.HOME_POS[servo_id]
+            target = config.ELBOW_DOWN_POS.get(servo_id, 2048)
             self.kinematics.pos[servo_id] = target 
+            
             if servo_id == 1:
-                self.serial.send_command(f"1,{int(target)}\n2,{4095 - int(target)}\n")
+                target_2 = config.ELBOW_DOWN_POS.get(2, 2048)
+                self.serial.send_command(f"1,{int(target)}\n2,{int(target_2)}\n")
             else:
                 self.serial.send_command(f"{servo_id},{int(target)}\n")
+            
             time.sleep(0.4) 
             
         self.is_homing = False
@@ -91,7 +110,6 @@ class RobotServer:
                         self.target_pose[1] += pad.get('lx', 0) * config.SPEED_LINEAR
                         self.target_pose[2] -= pad.get('ry', 0) * config.SPEED_LINEAR
                     else:
-                        # RPY: effector
                         self.target_pose[3] += pad.get('lx', 0) * config.SPEED_ANGULAR
                         self.target_pose[4] += pad.get('ly', 0) * config.SPEED_ANGULAR
                         self.target_pose[5] -= pad.get('rx', 0) * config.SPEED_ANGULAR
@@ -103,9 +121,10 @@ class RobotServer:
                 else:
                     self.arm_status = "IDLE"
 
+                max_servo = getattr(config, 'MAX_SERVO', 4095)
                 if pad.get('l2', 0) > 0.05: self.kinematics.pos[7] -= (pad.get('l2', 0) * config.GRIP_SPEED)
                 if pad.get('r2', 0) > 0.05: self.kinematics.pos[7] += (pad.get('r2', 0) * config.GRIP_SPEED)
-                self.kinematics.pos[7] = max(0, min(4095, self.kinematics.pos[7]))
+                self.kinematics.pos[7] = max(0, min(max_servo, self.kinematics.pos[7]))
 
                 if pad.get('dpad_down', False):
                     self.perform_homing()
@@ -120,9 +139,11 @@ class RobotServer:
             self.last_stat_request = time.time()
 
         coords, _ = self.kinematics.get_kinematics(self.kinematics.pos)
+        
+        phys_pos = self._get_physical_positions()
         servos_payload = []
         for s_id in [0, 1, 2, 3, 4, 5, 6, 7]:
-            pos = 4095 - int(self.kinematics.pos.get(1, 2047)) if s_id == 2 else int(self.kinematics.pos.get(s_id, 2047))
+            pos = int(phys_pos.get(s_id, 2048))
             stat = self.servo_stats[s_id]
             servos_payload.append({
                 "id": s_id, "pos": pos, "temp": stat['temp'], 
@@ -142,14 +163,12 @@ class RobotServer:
         self.serial.connect()
         print(f"[NET] Control: {config.ZMQ_CONTROL_PORT} | Feedback: {config.ZMQ_FEEDBACK_PORT}")
         
-        # 1. AUTOMATYCZNY HOMING NA STARCIE
         print("[INFO] Executing Auto-Homing on startup...")
         self.perform_homing() 
         
-        # 2. WSTĘPNE POBRANIE TELEMETRII (Zanim wpuścimy GUI)
         print("[INFO] Fetching initial telemetry...")
         boot_start = time.time()
-        while time.time() - boot_start < 5.0: # Szukamy danych przez max 5 sekund
+        while time.time() - boot_start < 5.0:
             self.serial.request_stat()
             time.sleep(0.5)
             esp_logs = self.serial.read_telemetry()
@@ -174,7 +193,6 @@ class RobotServer:
                 print("[INFO] Initial telemetry synchronized! Systems GO.")
                 break
 
-        # 3. GŁÓWNA PĘTLA PROGRAMU
         try:
             while True:
                 try: 
@@ -213,7 +231,7 @@ class RobotServer:
                     msg = self.socket.recv_json(flags=zmq.NOBLOCK)
                     reply = self.process_request(msg)
                     if not self.is_homing and self.current_mode != "DRIVING":
-                        self.serial.send_positions(self.kinematics.pos)
+                        self.serial.send_positions(self._get_physical_positions())
                     self.socket.send_json(reply)
                 except zmq.Again: 
                     pass
