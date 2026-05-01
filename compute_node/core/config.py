@@ -1,5 +1,5 @@
 # --- NETWORK SETTINGS ---
-ROBOT_IP = "192.168.55.106"  # hostname -I
+ROBOT_IP = "192.168.55.107"  # hostname -I
 ZMQ_CONTROL_PORT = "5555"      
 ZMQ_VIDEO_PORT = "5556"        
 ZMQ_FEEDBACK_PORT = "5557"   

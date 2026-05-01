@@ -4,11 +4,11 @@ from core import config
 
 class RobotKinematics:
     def __init__(self):
-        self.pos = config.HOME_POS.copy()
+        self.pos = config.ELBOW_DOWN_POS.copy()
         
-        self.last_t4 = self.raw_to_rad(config.HOME_POS[4], 4)
-        self.last_t5 = self.raw_to_rad(config.HOME_POS[5], 5)
-        self.last_t6 = self.raw_to_rad(config.HOME_POS[6], 6)
+        self.last_t4 = self.raw_to_rad(config.ELBOW_DOWN_POS[4], 4)
+        self.last_t5 = self.raw_to_rad(config.ELBOW_DOWN_POS[5], 5)
+        self.last_t6 = self.raw_to_rad(config.ELBOW_DOWN_POS[6], 6)
 
     def raw_to_rad(self, raw_val, servo_id):
         return math.radians((raw_val - config.ZERO_POS[servo_id]) * 0.088)
