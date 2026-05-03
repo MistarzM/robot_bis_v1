@@ -24,7 +24,7 @@ A2 = 43.0
 A3 = 150.0  
 A4 = 52.0   
 A5 = 100.0  
-A6 = 196.5
+A6 = 180.0
 MAX_REACH = A2 + A3 + A5 + A6 - 5.0
 
 # Hardware calibration 
