@@ -2,11 +2,12 @@ import time
 import zmq
 import math
 import re
+import socket
 from core import config
 from core.kinematics import RobotKinematics
 from hardware.serial_link import Esp32Serial
 
-class RobotServer:
+class ArmServer:
     def __init__(self):
         self.kinematics = RobotKinematics()
         self.serial = Esp32Serial()
@@ -38,6 +39,16 @@ class RobotServer:
         self.last_stat_request = time.time()
         
         self.servo_stats = {id: {'temp': '--', 'volt': '--', 'curr': '--', 'status': 'OK'} for id in [0,1,2,3,4,5,6,7]}
+
+    def _get_local_ip(self):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80)) 
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "NO NETWORK"
 
     def _get_physical_positions(self):
         phys_pos = {}
@@ -163,6 +174,11 @@ class RobotServer:
         self.serial.connect()
         print(f"[NET] Control: {config.ZMQ_CONTROL_PORT} | Feedback: {config.ZMQ_FEEDBACK_PORT}")
         
+        local_ip = self._get_local_ip()
+        print(f"[INFO] Publishing IP to OLED: {local_ip}")
+        self.serial.send_ip(local_ip)
+        time.sleep(0.5)
+
         print("[INFO] Executing Auto-Homing on startup...")
         self.perform_homing() 
         
@@ -247,5 +263,5 @@ class RobotServer:
             self.context.term()
 
 if __name__ == "__main__":
-    server = RobotServer()
+    server = ArmServer()
     server.start()
