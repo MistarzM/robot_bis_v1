@@ -50,10 +50,10 @@ class Esp32Serial:
             self.ser.write(cmd_batch.encode('utf-8'))
 
     def send_ip(self, ip_address):
-        if self.serial and self.serial.is_open:
+        if self.ser and self.ser.is_open:
             try:
                 command = f"ip,{ip_address}\n"
-                self.serial.write(command.encode('utf-8'))
+                self.ser.write(command.encode('utf-8'))
             except Exception as e:
                 print(f"[SERIAL ERR] Failed to send IP: {e}")
 
