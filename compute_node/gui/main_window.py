@@ -33,7 +33,6 @@ class MainWindow(QMainWindow):
         self._build_camera_panel(self.right_column)
         self._build_console_panel(self.right_column)
 
-        # ZMIANA: Poszerzenie lewej kolumny (proporcje 4:5 zamiast 1:2)
         self.main_layout.addLayout(self.left_column, 4)
         self.main_layout.addLayout(self.right_column, 5)
 
@@ -140,37 +139,40 @@ class MainWindow(QMainWindow):
 
         target_layout = QHBoxLayout()
 
-        # ZMIANA: Dodana sekcja na przyciski specjalne (Homing) po lewej stronie
+        # ZMIANA: Zastąpienie pojedynczego przycisku dwoma (Zielony i Czerwony)
         preset_layout = QVBoxLayout()
-        btn_homing = QPushButton("HOMING\n(Default)")
-        btn_homing.setFixedSize(75, 45)
-        btn_homing.setStyleSheet("background-color: #552222; color: #ff5555; font-weight: bold; border-radius: 5px;")
-        # Symuluje przycisk DPAD_DOWN który w Twoim kodzie robota odpala bazowanie
-        btn_homing.pressed.connect(lambda: self._vpad_btn('dpad_down', True))
-        btn_homing.released.connect(lambda: self._vpad_btn('dpad_down', False))
         
-        preset_layout.addWidget(btn_homing)
-        preset_layout.addStretch() # Wypycha przycisk do góry
+        btn_home = QPushButton("HOME\nPOSITION")
+        btn_home.setFixedSize(90, 45)
+        btn_home.setStyleSheet("background-color: #1a3300; color: #4e9a06; font-weight: bold; border-radius: 5px;")
+        btn_home.pressed.connect(lambda: self._vpad_btn('dpad_down', True))
+        btn_home.released.connect(lambda: self._vpad_btn('dpad_down', False))
+
+        btn_elbow = QPushButton("ELBOW DOWN\nPOSITION")
+        btn_elbow.setFixedSize(90, 45)
+        btn_elbow.setStyleSheet("background-color: #552222; color: #ff5555; font-weight: bold; border-radius: 5px;")
+        btn_elbow.pressed.connect(lambda: self._vpad_btn('dpad_down', True))
+        btn_elbow.released.connect(lambda: self._vpad_btn('dpad_down', False))
+        
+        preset_layout.addWidget(btn_home)
+        preset_layout.addWidget(btn_elbow)
+        preset_layout.addStretch() 
         target_layout.addLayout(preset_layout)
 
-        # Separator pomiędzy Homing a sterowaniem XYZ
         v_sep1 = QWidget()
         v_sep1.setFixedWidth(2)
         v_sep1.setStyleSheet("background-color: #444; margin-left: 5px; margin-right: 5px;")
         target_layout.addWidget(v_sep1)
         
-        # Sekcja XYZ
         target_layout.addLayout(self._create_axis_block("X", "ly", -0.4, 0.4, True))
         target_layout.addLayout(self._create_axis_block("Y", "lx", 0.4, -0.4, True))
         target_layout.addLayout(self._create_axis_block("Z", "ry", -0.4, 0.4, True))
         
-        # Separator pomiędzy XYZ a RPY
         v_sep2 = QWidget()
         v_sep2.setFixedWidth(2)
         v_sep2.setStyleSheet("background-color: #444; margin-left: 5px; margin-right: 5px;")
         target_layout.addWidget(v_sep2)
         
-        # Sekcja RPY 
         target_layout.addLayout(self._create_axis_block("Roll", "rx", -0.4, 0.4, False))
         target_layout.addLayout(self._create_axis_block("Pitch", "ly", 0.4, -0.4, False))
         target_layout.addLayout(self._create_axis_block("Yaw", "lx", 0.4, -0.4, False))
@@ -248,7 +250,6 @@ class MainWindow(QMainWindow):
         drv_group = QGroupBox("Drive Controls (8-Way)")
         drive_layout = QGridLayout()
         
-        # ZMIANA: Komplet 8 przycisków kierunkowych
         btn_ul = QPushButton("↖"); btn_up = QPushButton("▲"); btn_ur = QPushButton("↗")
         btn_left = QPushButton("◀"); btn_stop = QPushButton("●"); btn_right = QPushButton("▶")
         btn_dl = QPushButton("↙"); btn_down = QPushButton("▼"); btn_dr = QPushButton("↘")
@@ -258,33 +259,27 @@ class MainWindow(QMainWindow):
             b.setFixedSize(40, 40)
             self.drive_controls.append(b)
 
-        # Funkcja pomocnicza wysyłająca komendę jazdy i skrętu naraz
         def drive_action(ly, turn):
             self._vpad_axis('ly', ly)
-            self._vpad_axis('lx', turn) # UGV02 chassis reaguje na lx do skrętu
-            self._vpad_axis('rx', turn) # rx dodane dla pewności obsługi
+            self._vpad_axis('lx', turn) 
+            self._vpad_axis('rx', turn) 
 
-        # Mapowanie wszystkich 8 kierunków
         btn_up.pressed.connect(lambda: drive_action(-0.6, 0.0))
         btn_down.pressed.connect(lambda: drive_action(0.6, 0.0))
         btn_left.pressed.connect(lambda: drive_action(0.0, -0.6))
         btn_right.pressed.connect(lambda: drive_action(0.0, 0.6))
         
-        # Skosy (Jazda w przód/tył połączona ze skrętem)
         btn_ul.pressed.connect(lambda: drive_action(-0.6, -0.6))
         btn_ur.pressed.connect(lambda: drive_action(-0.6, 0.6))
         btn_dl.pressed.connect(lambda: drive_action(0.6, -0.6))
         btn_dr.pressed.connect(lambda: drive_action(0.6, 0.6))
 
-        # Zwalnianie dowolnego przycisku zatrzymuje platformę
         for b in [btn_ul, btn_up, btn_ur, btn_left, btn_right, btn_dl, btn_down, btn_dr]:
             b.released.connect(lambda: drive_action(0.0, 0.0))
 
-        # Ręczny Stop (na wszelki wypadek)
         btn_stop.setStyleSheet("color: red; font-weight: bold;")
         btn_stop.pressed.connect(lambda: drive_action(0.0, 0.0))
 
-        # Układanie w gridzie 3x3
         drive_layout.addWidget(btn_ul, 0, 0); drive_layout.addWidget(btn_up, 0, 1); drive_layout.addWidget(btn_ur, 0, 2)
         drive_layout.addWidget(btn_left, 1, 0); drive_layout.addWidget(btn_stop, 1, 1); drive_layout.addWidget(btn_right, 1, 2)
         drive_layout.addWidget(btn_dl, 2, 0); drive_layout.addWidget(btn_down, 2, 1); drive_layout.addWidget(btn_dr, 2, 2)
@@ -365,16 +360,35 @@ class MainWindow(QMainWindow):
             for i, pt in enumerate(pts):
                 self.coord_labels[pt].setText(f"X: {coords[i][0]:>5.1f} | Y: {coords[i][1]:>5.1f} | Z: {coords[i][2]:>5.1f}")
 
+        # ZMIANA: Dynamiczne kolorowanie napięcia na poszczególnych serwach
         servos = data.get("servos", [])
         if len(servos) == len(self.servo_data):
             for i, s_data in enumerate(servos):
                 self.servo_data[i]["pos"].setText(str(s_data["pos"]))
                 self.servo_data[i]["temp"].setText(f"{s_data['temp']} °C" if s_data['temp'] != '--' else "-- °C")
-                self.servo_data[i]["vol"].setText(f"{s_data['volt']} V" if s_data['volt'] != '--' else "-- V")
+                
+                # --- Logika Koloru Voltów ---
+                v_str = s_data['volt']
+                if v_str != '--':
+                    try:
+                        v_float = float(v_str)
+                        if 11.0 <= v_float <= 12.6:
+                            self.servo_data[i]["vol"].setStyleSheet("color: #4e9a06; font-weight: bold;") # Zielony
+                        elif 10.5 <= v_float < 11.0:
+                            self.servo_data[i]["vol"].setStyleSheet("color: #d4a017; font-weight: bold;") # Żółty
+                        else:
+                            self.servo_data[i]["vol"].setStyleSheet("color: #ff5555; font-weight: bold;") # Czerwony
+                        self.servo_data[i]["vol"].setText(f"{v_str} V")
+                    except ValueError:
+                        self.servo_data[i]["vol"].setStyleSheet("color: #888;")
+                        self.servo_data[i]["vol"].setText(f"{v_str} V")
+                else:
+                    self.servo_data[i]["vol"].setStyleSheet("color: #888;")
+                    self.servo_data[i]["vol"].setText("-- V")
+
                 self.servo_data[i]["curr"].setText(f"{s_data['curr']} mA" if s_data['curr'] != '--' else "-- mA")
                 
                 hw_status = s_data.get('status', 'OK')
-                
                 if hw_status == 'ERROR':
                     self.servo_data[i]["stat"].setText("OFFLINE")
                     self.servo_data[i]["stat"].setStyleSheet("color: #ff5555; font-weight: bold;")
