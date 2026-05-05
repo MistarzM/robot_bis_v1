@@ -1,4 +1,13 @@
 #include <SCServo.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 32
+#define OLED_RESET -1
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 SMS_STS st;
 
@@ -34,6 +43,17 @@ void setup() {
   Serial1.begin(1000000, SERIAL_8N1, 18, 19); 
   st.pSerial = &Serial1;
 
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+  }
+  
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("Waiting for IP...");
+  display.display();
+
   delay(2000);
   scan_hardware();
   Serial.println("[SYS] esp32 bridge ready");
@@ -46,7 +66,20 @@ void loop() {
 
     if (data.length() == 0) return;
 
-    if (data.equalsIgnoreCase("stat")) {
+    if (data.startsWith("ip,")) {
+      String ip_str = data.substring(3); 
+      
+      display.clearDisplay();
+      display.setTextSize(1);
+      display.setCursor(0, 0);
+      display.println("Robot IP Address:");
+      display.setCursor(0, 12);
+      display.println(ip_str);
+      display.display();
+      
+      Serial.println("[SYS] OLED updated with IP");
+    }
+    else if (data.equalsIgnoreCase("stat")) {
       Serial.println("[STAT] hardware telemetry");
       for (int i = 0; i < 8; i++) {
         if (!servo_active[i]) continue;
