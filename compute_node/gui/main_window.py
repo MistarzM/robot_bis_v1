@@ -33,8 +33,9 @@ class MainWindow(QMainWindow):
         self._build_camera_panel(self.right_column)
         self._build_console_panel(self.right_column)
 
-        self.main_layout.addLayout(self.left_column, 1)
-        self.main_layout.addLayout(self.right_column, 2)
+        # ZMIANA: Poszerzenie lewej kolumny (proporcje 4:5 zamiast 1:2)
+        self.main_layout.addLayout(self.left_column, 4)
+        self.main_layout.addLayout(self.right_column, 5)
 
         self.worker = NetworkWorker()
         self.worker.status_signal.connect(self.update_pad_status)
@@ -138,18 +139,38 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout()
 
         target_layout = QHBoxLayout()
+
+        # ZMIANA: Dodana sekcja na przyciski specjalne (Homing) po lewej stronie
+        preset_layout = QVBoxLayout()
+        btn_homing = QPushButton("HOMING\n(Default)")
+        btn_homing.setFixedSize(75, 45)
+        btn_homing.setStyleSheet("background-color: #552222; color: #ff5555; font-weight: bold; border-radius: 5px;")
+        # Symuluje przycisk DPAD_DOWN który w Twoim kodzie robota odpala bazowanie
+        btn_homing.pressed.connect(lambda: self._vpad_btn('dpad_down', True))
+        btn_homing.released.connect(lambda: self._vpad_btn('dpad_down', False))
         
-        # Sekcja XYZ (Czułość zmniejszona do 0.4 z 1.0)
+        preset_layout.addWidget(btn_homing)
+        preset_layout.addStretch() # Wypycha przycisk do góry
+        target_layout.addLayout(preset_layout)
+
+        # Separator pomiędzy Homing a sterowaniem XYZ
+        v_sep1 = QWidget()
+        v_sep1.setFixedWidth(2)
+        v_sep1.setStyleSheet("background-color: #444; margin-left: 5px; margin-right: 5px;")
+        target_layout.addWidget(v_sep1)
+        
+        # Sekcja XYZ
         target_layout.addLayout(self._create_axis_block("X", "ly", -0.4, 0.4, True))
         target_layout.addLayout(self._create_axis_block("Y", "lx", 0.4, -0.4, True))
         target_layout.addLayout(self._create_axis_block("Z", "ry", -0.4, 0.4, True))
         
-        v_sep = QWidget()
-        v_sep.setFixedWidth(2)
-        v_sep.setStyleSheet("background-color: #444; margin-left: 5px; margin-right: 5px;")
-        target_layout.addWidget(v_sep)
+        # Separator pomiędzy XYZ a RPY
+        v_sep2 = QWidget()
+        v_sep2.setFixedWidth(2)
+        v_sep2.setStyleSheet("background-color: #444; margin-left: 5px; margin-right: 5px;")
+        target_layout.addWidget(v_sep2)
         
-        # Sekcja RPY (Czułość zmniejszona do 0.4 z 1.0)
+        # Sekcja RPY 
         target_layout.addLayout(self._create_axis_block("Roll", "rx", -0.4, 0.4, False))
         target_layout.addLayout(self._create_axis_block("Pitch", "ly", 0.4, -0.4, False))
         target_layout.addLayout(self._create_axis_block("Yaw", "lx", 0.4, -0.4, False))
@@ -224,38 +245,50 @@ class MainWindow(QMainWindow):
         bat_layout.addWidget(self.lbl_battery)
         bat_group.setLayout(bat_layout)
         
-        drv_group = QGroupBox("Drive Controls")
+        drv_group = QGroupBox("Drive Controls (8-Way)")
         drive_layout = QGridLayout()
-        btn_up = QPushButton("▲"); btn_down = QPushButton("▼")
-        btn_left = QPushButton("◀"); btn_right = QPushButton("▶")
         
-        for b in [btn_up, btn_down, btn_left, btn_right]: 
+        # ZMIANA: Komplet 8 przycisków kierunkowych
+        btn_ul = QPushButton("↖"); btn_up = QPushButton("▲"); btn_ur = QPushButton("↗")
+        btn_left = QPushButton("◀"); btn_stop = QPushButton("●"); btn_right = QPushButton("▶")
+        btn_dl = QPushButton("↙"); btn_down = QPushButton("▼"); btn_dr = QPushButton("↘")
+        
+        btns = [btn_ul, btn_up, btn_ur, btn_left, btn_stop, btn_right, btn_dl, btn_down, btn_dr]
+        for b in btns:
             b.setFixedSize(40, 40)
             self.drive_controls.append(b)
 
-        # Mniejsza czułość i wysyłanie podwójnych sygnałów obrotu (na osi lx i rx) aby zagwarantować skręt
-        btn_up.pressed.connect(lambda: self._vpad_axis('ly', -0.6)); btn_up.released.connect(lambda: self._vpad_axis('ly', 0.0))
-        btn_down.pressed.connect(lambda: self._vpad_axis('ly', 0.6)); btn_down.released.connect(lambda: self._vpad_axis('ly', 0.0))
+        # Funkcja pomocnicza wysyłająca komendę jazdy i skrętu naraz
+        def drive_action(ly, turn):
+            self._vpad_axis('ly', ly)
+            self._vpad_axis('lx', turn) # UGV02 chassis reaguje na lx do skrętu
+            self._vpad_axis('rx', turn) # rx dodane dla pewności obsługi
+
+        # Mapowanie wszystkich 8 kierunków
+        btn_up.pressed.connect(lambda: drive_action(-0.6, 0.0))
+        btn_down.pressed.connect(lambda: drive_action(0.6, 0.0))
+        btn_left.pressed.connect(lambda: drive_action(0.0, -0.6))
+        btn_right.pressed.connect(lambda: drive_action(0.0, 0.6))
         
-        def turn_left():
-            self._vpad_axis('rx', -0.6)
-            self._vpad_axis('lx', -0.6)
-            
-        def turn_right():
-            self._vpad_axis('rx', 0.6)
-            self._vpad_axis('lx', 0.6)
-            
-        def stop_turn():
-            self._vpad_axis('rx', 0.0)
-            self._vpad_axis('lx', 0.0)
+        # Skosy (Jazda w przód/tył połączona ze skrętem)
+        btn_ul.pressed.connect(lambda: drive_action(-0.6, -0.6))
+        btn_ur.pressed.connect(lambda: drive_action(-0.6, 0.6))
+        btn_dl.pressed.connect(lambda: drive_action(0.6, -0.6))
+        btn_dr.pressed.connect(lambda: drive_action(0.6, 0.6))
 
-        btn_left.pressed.connect(turn_left); btn_left.released.connect(stop_turn)
-        btn_right.pressed.connect(turn_right); btn_right.released.connect(stop_turn)
+        # Zwalnianie dowolnego przycisku zatrzymuje platformę
+        for b in [btn_ul, btn_up, btn_ur, btn_left, btn_right, btn_dl, btn_down, btn_dr]:
+            b.released.connect(lambda: drive_action(0.0, 0.0))
 
-        drive_layout.addWidget(btn_up, 0, 1)
-        drive_layout.addWidget(btn_left, 1, 0)
-        drive_layout.addWidget(btn_right, 1, 2)
-        drive_layout.addWidget(btn_down, 2, 1)
+        # Ręczny Stop (na wszelki wypadek)
+        btn_stop.setStyleSheet("color: red; font-weight: bold;")
+        btn_stop.pressed.connect(lambda: drive_action(0.0, 0.0))
+
+        # Układanie w gridzie 3x3
+        drive_layout.addWidget(btn_ul, 0, 0); drive_layout.addWidget(btn_up, 0, 1); drive_layout.addWidget(btn_ur, 0, 2)
+        drive_layout.addWidget(btn_left, 1, 0); drive_layout.addWidget(btn_stop, 1, 1); drive_layout.addWidget(btn_right, 1, 2)
+        drive_layout.addWidget(btn_dl, 2, 0); drive_layout.addWidget(btn_down, 2, 1); drive_layout.addWidget(btn_dr, 2, 2)
+        
         drive_layout.setAlignment(Qt.AlignCenter)
         drv_group.setLayout(drive_layout)
         
@@ -286,7 +319,6 @@ class MainWindow(QMainWindow):
         parent.addWidget(group, 4)
 
     def update_pad_status(self, pad_ok, _):
-        # Ten wiersz wciąż pokazuje czy fizyczny pad z bluetooth'a jest połączony (przydatne informacyjnie)
         self.status_labels["pad"].setText("Gamepad: CONNECTED" if pad_ok else "Gamepad: DISCONNECTED")
         self.status_labels["pad"].setStyleSheet(f"color: {'#4e9a06' if pad_ok else 'red'}; font-weight: bold;")
 
@@ -307,7 +339,6 @@ class MainWindow(QMainWindow):
         for c in self.rpy_controls: c.setEnabled(is_rpy)
         for c in self.drive_controls: c.setEnabled(is_drv)
         
-        # Formatowanie: 1 miejsce po przecinku dla XYZ, 2 miejsca po przecinku dla RPY
         t = data.get("target", [0,0,0,0,0,0])
         if len(t) >= 6 and "X" in self.target_val_labels:
             self.target_val_labels["X"].setText(f"X:\n{t[0]:.1f}")
