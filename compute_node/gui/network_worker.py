@@ -20,11 +20,47 @@ class NetworkWorker(QThread):
         self.robot_url = f"tcp://{config.ROBOT_IP}:{config.ZMQ_CONTROL_PORT}"
         self.socket.setsockopt(zmq.RCVTIMEO, 500)
 
+        # Stan Wirtualnego Pada (GUI)
+        self.vpad = {
+            'lx': 0.0, 'ly': 0.0, 'rx': 0.0, 'ry': 0.0,
+            'l2': 0.0, 'r2': 0.0,
+            'btn_square': False, 'btn_triangle': False,
+            'btn_circle': False, 'btn_cross': False,
+            'dpad_up': False, 'dpad_down': False
+        }
+
+    def update_vpad_axis(self, axis, value):
+        self.vpad[axis] = value
+
+    def update_vpad_btn(self, btn, is_pressed):
+        self.vpad[btn] = is_pressed
+
     def run(self):
         self.socket.connect(self.robot_url)
 
         while self.is_running:
             pad = self.gamepad.read_state()
+            
+            # KRYTYCZNA ZMIANA: Jeśli brak sprzętowego pada, ZAWSZE symulujemy 
+            # wyzerowanego pada z 'connected': True. Dzięki temu serwer nie ignoruje
+            # komend po puszczeniu przycisku (co powodowało jazdę w nieskończoność).
+            if not pad.get('connected'):
+                pad = {
+                    'connected': True, 
+                    'lx': 0.0, 'ly': 0.0, 'rx': 0.0, 'ry': 0.0,
+                    'l2': 0.0, 'r2': 0.0,
+                    'btn_square': False, 'btn_triangle': False,
+                    'btn_circle': False, 'btn_cross': False,
+                    'dpad_up': False, 'dpad_down': False
+                }
+
+            # Wstrzykiwanie wciśniętych przycisków z GUI
+            for k, v in self.vpad.items():
+                if type(v) == bool and v:
+                    pad[k] = True
+                elif type(v) == float and v != 0.0:
+                    pad[k] = v
+
             payload = {"command": "CONTROL", "pad": pad}
 
             robot_online = False
@@ -39,7 +75,9 @@ class NetworkWorker(QThread):
                 self.socket.setsockopt(zmq.RCVTIMEO, 500)
                 self.socket.connect(self.robot_url)
 
-            self.status_signal.emit(pad.get('connected', False), robot_online)
+            # Do interfejsu rzucamy prawdziwy status PADA fizycznego, żeby GUI wiedziało,
+            # czy sterujemy sprzętem czy myszką.
+            self.status_signal.emit(self.gamepad.connected, robot_online)
             time.sleep(0.02)
 
     def stop(self):
@@ -54,7 +92,7 @@ class TelemetryWorker(QThread):
         self.is_running = True
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.SUB)
-        self.socket.setsockopt(zmq.CONFLATE, 1) # Always fetch the freshest data
+        self.socket.setsockopt(zmq.CONFLATE, 1) 
         self.socket.setsockopt_string(zmq.SUBSCRIBE, "") 
         self.telemetry_url = f"tcp://{config.ROBOT_IP}:{config.ZMQ_FEEDBACK_PORT}"
 
@@ -66,7 +104,7 @@ class TelemetryWorker(QThread):
                 self.feedback_signal.emit(data)
             except zmq.Again:
                 pass
-            time.sleep(0.02) # ~50 Hz refresh rate
+            time.sleep(0.02) 
                 
     def stop(self):
         self.is_running = False

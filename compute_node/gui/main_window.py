@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QTextEdit, QGridLayout
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QTextEdit, QGridLayout, QPushButton
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from gui.network_worker import NetworkWorker, VideoWorker, TelemetryWorker
@@ -7,7 +7,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("UGV02 - Compute Node Command Center")
-        self.resize(1200, 850) 
+        self.resize(1300, 800) 
         self.setStyleSheet("font-size: 13px; font-family: 'Menlo', 'Courier New', monospace;")
 
         central_widget = QWidget()
@@ -17,6 +17,12 @@ class MainWindow(QMainWindow):
         self.left_column = QVBoxLayout()
         self.right_column = QVBoxLayout()
         
+        self.mode_buttons = {}
+        self.xyz_controls = []
+        self.rpy_controls = []
+        self.drive_controls = []
+        self.target_val_labels = {}
+
         self._build_mode_panel(self.left_column)
         self._build_system_status_panel(self.left_column)
         self._build_spatial_panel(self.left_column) 
@@ -42,13 +48,66 @@ class MainWindow(QMainWindow):
         self.video_worker.frame_signal.connect(self.update_camera_frame)
         self.video_worker.start()
 
+    def _vpad_axis(self, axis, value):
+        self.worker.update_vpad_axis(axis, value)
+
+    def _vpad_btn(self, btn, state):
+        self.worker.update_vpad_btn(btn, state)
+
+    def _create_axis_block(self, name, axis_name, target_val_plus, target_val_minus, is_xyz=True):
+        layout = QVBoxLayout()
+        
+        btn_plus = QPushButton(f"▲ (+)")
+        btn_plus.setFixedSize(50, 30) 
+        btn_plus.pressed.connect(lambda: self._vpad_axis(axis_name, target_val_plus))
+        btn_plus.released.connect(lambda: self._vpad_axis(axis_name, 0.0))
+
+        lbl_val = QLabel(f"{name}:\n0.0")
+        lbl_val.setAlignment(Qt.AlignCenter)
+        lbl_val.setStyleSheet("color: cyan; font-weight: bold; background: #222; border-radius: 4px; padding: 2px;")
+        
+        btn_minus = QPushButton(f"▼ (-)")
+        btn_minus.setFixedSize(50, 30)
+        btn_minus.pressed.connect(lambda: self._vpad_axis(axis_name, target_val_minus))
+        btn_minus.released.connect(lambda: self._vpad_axis(axis_name, 0.0))
+
+        layout.addWidget(btn_plus)
+        layout.addWidget(lbl_val)
+        layout.addWidget(btn_minus)
+        
+        controls = [btn_plus, btn_minus, lbl_val]
+        if is_xyz:
+            self.xyz_controls.extend(controls)
+        else:
+            self.rpy_controls.extend(controls)
+            
+        self.target_val_labels[name] = lbl_val
+        return layout
+
     def _build_mode_panel(self, parent):
         group = QGroupBox("Active Control Mode")
-        layout = QVBoxLayout()
-        self.lbl_mode = QLabel("[WAITING FOR DATA]")
-        self.lbl_mode.setAlignment(Qt.AlignCenter)
-        self.lbl_mode.setStyleSheet("font-size: 22px; font-weight: bold; padding: 5px; border-radius: 5px; background: #333;")
-        layout.addWidget(self.lbl_mode)
+        layout = QHBoxLayout()
+
+        self.btn_xyz = QPushButton("XYZ")
+        self.btn_rpy = QPushButton("RPY") 
+        self.btn_drv = QPushButton("DRIVING")
+        self.btn_auto = QPushButton("AUTONOMOUS")
+
+        self.mode_buttons = {
+            "XYZ": (self.btn_xyz, "#0055ff", "#002244", 'btn_square'),
+            "RPY": (self.btn_rpy, "#d4a017", "#4a3b00", 'btn_triangle'),
+            "DRIVING": (self.btn_drv, "#cc0000", "#4a0000", 'btn_circle'),
+            "AUTONOMOUS": (self.btn_auto, "#4e9a06", "#1a3300", 'btn_cross')
+        }
+
+        for mode_name, (btn, active_col, pale_col, pad_btn) in self.mode_buttons.items():
+            btn.setMinimumHeight(40)
+            btn.setStyleSheet(f"background-color: {pale_col}; color: #888; font-weight: bold; border-radius: 5px; font-size: 14px;")
+            
+            btn.pressed.connect(lambda pb=pad_btn: self._vpad_btn(pb, True))
+            btn.released.connect(lambda pb=pad_btn: self._vpad_btn(pb, False))
+            layout.addWidget(btn)
+
         group.setLayout(layout)
         parent.addWidget(group)
 
@@ -75,31 +134,54 @@ class MainWindow(QMainWindow):
         parent.addWidget(group)
 
     def _build_spatial_panel(self, parent):
-        group = QGroupBox("Task Space & IK Target")
-        layout = QVBoxLayout()
+        group = QGroupBox("Task Space IK Target (Display & Control)")
+        main_layout = QVBoxLayout()
+
+        target_layout = QHBoxLayout()
+        
+        # Sekcja XYZ (Czułość zmniejszona do 0.4 z 1.0)
+        target_layout.addLayout(self._create_axis_block("X", "ly", -0.4, 0.4, True))
+        target_layout.addLayout(self._create_axis_block("Y", "lx", 0.4, -0.4, True))
+        target_layout.addLayout(self._create_axis_block("Z", "ry", -0.4, 0.4, True))
+        
+        v_sep = QWidget()
+        v_sep.setFixedWidth(2)
+        v_sep.setStyleSheet("background-color: #444; margin-left: 5px; margin-right: 5px;")
+        target_layout.addWidget(v_sep)
+        
+        # Sekcja RPY (Czułość zmniejszona do 0.4 z 1.0)
+        target_layout.addLayout(self._create_axis_block("Roll", "rx", -0.4, 0.4, False))
+        target_layout.addLayout(self._create_axis_block("Pitch", "ly", 0.4, -0.4, False))
+        target_layout.addLayout(self._create_axis_block("Yaw", "lx", 0.4, -0.4, False))
+        
+        main_layout.addLayout(target_layout)
+
+        sep = QLabel()
+        sep.setFixedHeight(2)
+        sep.setStyleSheet("background-color: #333; margin-top: 5px; margin-bottom: 5px;")
+        main_layout.addWidget(sep)
+
         self.coord_labels = {}
-        
-        self.lbl_target = QLabel("TARGET: X:0 Y:0 Z:0 | Yaw:0 Pitch:0 Roll:0")
-        self.lbl_target.setStyleSheet("color: #ff5555; font-weight: bold; background: #222; padding: 4px;")
-        layout.addWidget(self.lbl_target)
-        
         points = ["Shoulder", "Elbow", "Wrist", "Gripper"]
-        for point in points:
-            row = QHBoxLayout()
+        
+        coord_layout = QGridLayout()
+        for i, point in enumerate(points):
             name = QLabel(f"{point}:")
-            name.setFixedWidth(80)
+            name.setStyleSheet("color: #888; font-weight: bold;")
             val = QLabel("X: 0.0 | Y: 0.0 | Z: 0.0")
             val.setStyleSheet("color: cyan; font-weight: bold;")
-            row.addWidget(name)
-            row.addWidget(val)
-            layout.addLayout(row)
+            coord_layout.addWidget(name, i//2, (i%2)*2)
+            coord_layout.addWidget(val, i//2, (i%2)*2 + 1)
             self.coord_labels[point] = val
-        group.setLayout(layout)
+            
+        main_layout.addLayout(coord_layout)
+        group.setLayout(main_layout)
         parent.addWidget(group)
         
     def _build_servo_status_panel(self, parent):
         group = QGroupBox("Servo Status Dashboard")
         layout = QGridLayout()
+        layout.setVerticalSpacing(4) 
         
         headers = ["ID", "Position", "Temp", "Volt", "Curr", "Status"]
         for col, text in enumerate(headers):
@@ -132,13 +214,55 @@ class MainWindow(QMainWindow):
         parent.addWidget(group)
 
     def _build_chassis_stats(self, parent):
-        group = QGroupBox("Chassis Stats")
-        layout = QHBoxLayout()
-        self.lbl_battery = QLabel("Battery: WAIT")
-        self.lbl_battery.setStyleSheet("font-size: 16px; font-weight: bold; color: yellow;")
-        layout.addWidget(self.lbl_battery)
-        group.setLayout(layout)
-        parent.addWidget(group)
+        chassis_layout = QHBoxLayout()
+        
+        bat_group = QGroupBox("Battery Status")
+        bat_layout = QVBoxLayout()
+        self.lbl_battery = QLabel("WAIT")
+        self.lbl_battery.setAlignment(Qt.AlignCenter)
+        self.lbl_battery.setStyleSheet("font-size: 24px; font-weight: bold; color: yellow;")
+        bat_layout.addWidget(self.lbl_battery)
+        bat_group.setLayout(bat_layout)
+        
+        drv_group = QGroupBox("Drive Controls")
+        drive_layout = QGridLayout()
+        btn_up = QPushButton("▲"); btn_down = QPushButton("▼")
+        btn_left = QPushButton("◀"); btn_right = QPushButton("▶")
+        
+        for b in [btn_up, btn_down, btn_left, btn_right]: 
+            b.setFixedSize(40, 40)
+            self.drive_controls.append(b)
+
+        # Mniejsza czułość i wysyłanie podwójnych sygnałów obrotu (na osi lx i rx) aby zagwarantować skręt
+        btn_up.pressed.connect(lambda: self._vpad_axis('ly', -0.6)); btn_up.released.connect(lambda: self._vpad_axis('ly', 0.0))
+        btn_down.pressed.connect(lambda: self._vpad_axis('ly', 0.6)); btn_down.released.connect(lambda: self._vpad_axis('ly', 0.0))
+        
+        def turn_left():
+            self._vpad_axis('rx', -0.6)
+            self._vpad_axis('lx', -0.6)
+            
+        def turn_right():
+            self._vpad_axis('rx', 0.6)
+            self._vpad_axis('lx', 0.6)
+            
+        def stop_turn():
+            self._vpad_axis('rx', 0.0)
+            self._vpad_axis('lx', 0.0)
+
+        btn_left.pressed.connect(turn_left); btn_left.released.connect(stop_turn)
+        btn_right.pressed.connect(turn_right); btn_right.released.connect(stop_turn)
+
+        drive_layout.addWidget(btn_up, 0, 1)
+        drive_layout.addWidget(btn_left, 1, 0)
+        drive_layout.addWidget(btn_right, 1, 2)
+        drive_layout.addWidget(btn_down, 2, 1)
+        drive_layout.setAlignment(Qt.AlignCenter)
+        drv_group.setLayout(drive_layout)
+        
+        chassis_layout.addWidget(bat_group, 1)
+        chassis_layout.addWidget(drv_group, 1)
+        
+        parent.addLayout(chassis_layout)
 
     def _build_camera_panel(self, parent):
         group = QGroupBox("Live Video Feed")
@@ -162,26 +286,37 @@ class MainWindow(QMainWindow):
         parent.addWidget(group, 4)
 
     def update_pad_status(self, pad_ok, _):
+        # Ten wiersz wciąż pokazuje czy fizyczny pad z bluetooth'a jest połączony (przydatne informacyjnie)
         self.status_labels["pad"].setText("Gamepad: CONNECTED" if pad_ok else "Gamepad: DISCONNECTED")
         self.status_labels["pad"].setStyleSheet(f"color: {'#4e9a06' if pad_ok else 'red'}; font-weight: bold;")
 
-    def update_camera_frame(self, frame_bytes):
-        pixmap = QPixmap()
-        pixmap.loadFromData(frame_bytes)
-        self.lbl_camera.setPixmap(pixmap.scaled(self.lbl_camera.width(), self.lbl_camera.height(), Qt.KeepAspectRatio))
-
     def process_telemetry(self, data):
-        # 1. Update Mode
         mode = data.get("mode", "UNKNOWN")
-        colors = {"XYZ": "#204a87", "RPY": "#c4a000", "DRIVING": "#cc0000", "AUTONOMOUS": "#4e9a06"} 
-        self.lbl_mode.setText(f"[{mode}]")
-        self.lbl_mode.setStyleSheet(f"font-size: 22px; font-weight: bold; padding: 5px; border-radius: 5px; background-color: {colors.get(mode, '#555')}; color: #fff;")
         
+        for m_name, (btn, active_col, pale_col, _) in self.mode_buttons.items():
+            if mode == m_name:
+                btn.setStyleSheet(f"background-color: {active_col}; color: white; font-weight: bold; border-radius: 5px; font-size: 15px;")
+            else:
+                btn.setStyleSheet(f"background-color: {pale_col}; color: #888; font-weight: bold; border-radius: 5px; font-size: 13px;")
+            
+        is_xyz = (mode == "XYZ")
+        is_rpy = (mode == "RPY")
+        is_drv = (mode == "DRIVING")
+        
+        for c in self.xyz_controls: c.setEnabled(is_xyz)
+        for c in self.rpy_controls: c.setEnabled(is_rpy)
+        for c in self.drive_controls: c.setEnabled(is_drv)
+        
+        # Formatowanie: 1 miejsce po przecinku dla XYZ, 2 miejsca po przecinku dla RPY
         t = data.get("target", [0,0,0,0,0,0])
-        if len(t) >= 6:
-            self.lbl_target.setText(f"TARGET: X:{t[0]:.0f} Y:{t[1]:.0f} Z:{t[2]:.0f} | Roll:{t[5]:.2f} Pitch:{t[4]:.2f} Yaw:{t[3]:.2f}")
+        if len(t) >= 6 and "X" in self.target_val_labels:
+            self.target_val_labels["X"].setText(f"X:\n{t[0]:.1f}")
+            self.target_val_labels["Y"].setText(f"Y:\n{t[1]:.1f}")
+            self.target_val_labels["Z"].setText(f"Z:\n{t[2]:.1f}")
+            self.target_val_labels["Roll"].setText(f"Rol:\n{t[5]:.2f}")
+            self.target_val_labels["Pitch"].setText(f"Pit:\n{t[4]:.2f}")
+            self.target_val_labels["Yaw"].setText(f"Yaw:\n{t[3]:.2f}")
 
-        # 2. System Status
         self.status_labels["node"].setText(f"Controller: {data.get('node_status')}")
         self.status_labels["node"].setStyleSheet("color: #4e9a06; font-weight: bold;")
         
@@ -192,14 +327,13 @@ class MainWindow(QMainWindow):
         chas_s = data.get('chassis_status', 'WAIT')
         self.status_labels["chassis"].setText(f"Chassis: {chas_s}")
         self.status_labels["chassis"].setStyleSheet(f"color: {'cyan' if chas_s == 'MOVING' else '#4e9a06' if chas_s == 'ACTIVE' else 'gray'}; font-weight: bold;")
-        # 3. Spatial Coords
+        
         coords = data.get("coords", [])
         if len(coords) >= 4:
             pts = ["Shoulder", "Elbow", "Wrist", "Gripper"]
             for i, pt in enumerate(pts):
                 self.coord_labels[pt].setText(f"X: {coords[i][0]:>5.1f} | Y: {coords[i][1]:>5.1f} | Z: {coords[i][2]:>5.1f}")
 
-        # 4. Dashboard z danymi o serwach (Uproszczone Statusy)
         servos = data.get("servos", [])
         if len(servos) == len(self.servo_data):
             for i, s_data in enumerate(servos):
@@ -221,17 +355,20 @@ class MainWindow(QMainWindow):
                         self.servo_data[i]["stat"].setText("ACTIVE")
                         self.servo_data[i]["stat"].setStyleSheet("color: #4e9a06;")
 
-        # 5. Bateria Podwozia
         chas_data = data.get("chassis_data", {})
         volts = chas_data.get("voltage", 0.0)
-        self.lbl_battery.setText(f"Battery: {volts:.2f} V")
-        self.lbl_battery.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {'red' if volts > 0 and volts < 10.5 else '#4e9a06'};")
+        self.lbl_battery.setText(f"{volts:.2f} V")
+        self.lbl_battery.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {'red' if volts > 0 and volts < 10.5 else '#4e9a06'};")
 
-        # 6. Czyste Logi
         for log in data.get("logs", []):
             self.txt_console.append(log)
             sb = self.txt_console.verticalScrollBar()
             sb.setValue(sb.maximum())
+
+    def update_camera_frame(self, frame_bytes):
+        pixmap = QPixmap()
+        pixmap.loadFromData(frame_bytes)
+        self.lbl_camera.setPixmap(pixmap.scaled(self.lbl_camera.width(), self.lbl_camera.height(), Qt.KeepAspectRatio))
 
     def closeEvent(self, event):
         self.worker.stop()
