@@ -1,7 +1,6 @@
 import os
 os.environ["SDL_VIDEODRIVER"] = "dummy"
 import pygame
-from core import config
 
 class GamepadController:
     def __init__(self):
@@ -10,46 +9,40 @@ class GamepadController:
         self.joystick = None
         self.connected = False
 
-    def read_state(self):
+    def read_raw_state(self):
         pygame.event.pump()
         if not self.connected:
             if pygame.joystick.get_count() > 0:
                 self.joystick = pygame.joystick.Joystick(0)
                 self.joystick.init()
                 self.connected = True
-            return {'connected': False}
+            return None
 
         try:
-            def get_ax(name):
-                val = self.joystick.get_axis(config.AXIS_MAP[name])
-                return 0.0 if abs(val) < config.DEADZONE else val
-
-            def get_btn(name):
-                return self.joystick.get_button(config.BUTTON_MAP[name])
-
-            # ZABEZPIECZENIE D-PADA: Sprawdzamy hat, a jak nie ma, to przyciski 11-14
-            d_up, d_down = False, False
-            if self.joystick.get_numhats() > 0:
-                hx, hy = self.joystick.get_hat(0)
-                d_up = (hy == 1)
-                d_down = (hy == -1)
-            else:
-                d_up = self.joystick.get_button(11) if self.joystick.get_numbuttons() > 11 else False
-                d_down = self.joystick.get_button(12) if self.joystick.get_numbuttons() > 12 else False
-
-            return {
-                'connected': True,
-                'lx': get_ax("LX"), 'ly': get_ax("LY"),
-                'rx': get_ax("RX"), 'ry': get_ax("RY"),
-                'l2': (self.joystick.get_axis(config.AXIS_MAP["L2"]) + 1.0) / 2.0,
-                'r2': (self.joystick.get_axis(config.AXIS_MAP["R2"]) + 1.0) / 2.0,
-                'btn_square': get_btn("SQUARE"),
-                'btn_triangle': get_btn("TRIANGLE"),
-                'btn_circle': get_btn("CIRCLE"),
-                'btn_cross': get_btn("CROSS"),
-                'dpad_up': d_up,
-                'dpad_down': d_down,
+            state = {
+                'buttons': [self.joystick.get_button(i) for i in range(self.joystick.get_numbuttons())],
+                'axes': [self.joystick.get_axis(i) for i in range(self.joystick.get_numaxes())],
+                'hats': [self.joystick.get_hat(i) for i in range(self.joystick.get_numhats())]
             }
+            return state
         except:
             self.connected = False
-            return {'connected': False}
+            return None
+
+    def get_pressed_input(self, state):
+        """Wychwytuje pierwszy wciśnięty element (do procesu mapowania)"""
+        if not state: return None
+        for i, b in enumerate(state['buttons']):
+            if b: return f"BTN_{i}"
+            
+        for i, h in enumerate(state['hats']):
+            if h[1] == 1: return f"HAT_{i}_UP"
+            if h[1] == -1: return f"HAT_{i}_DOWN"
+            if h[0] == -1: return f"HAT_{i}_LEFT"
+            if h[0] == 1: return f"HAT_{i}_RIGHT"
+            
+        for i, a in enumerate(state['axes']):
+            # Ignorujemy gałki (0-3). Pozwalamy na mapowanie tylko triggerów (4,5)
+            if i in [4, 5]: 
+                if a > 0.5: return f"AXIS_{i}_POS"
+        return None
