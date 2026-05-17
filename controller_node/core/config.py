@@ -19,12 +19,12 @@ MAX_STEP = 16
 GRIP_SPEED = 5
 
 # Arm dimensions (mm)
-A1 = 45.0    
-A2 = 43.0   
+A1 = 52.0    
+A2 = 50.5   
 A3 = 150.0  
-A4 = 52.0   
-A5 = 100.0  
-A6 = 180.0
+A4 = 51.0   
+A5 = 88.5  
+A6 = 179.0
 MAX_REACH = A2 + A3 + A5 + A6 - 5.0
 
 # Hardware calibration 
