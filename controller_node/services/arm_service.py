@@ -7,7 +7,7 @@ from core import config
 from core.kinematics import RobotKinematics
 from hardware.serial_link import Esp32Serial
 
-class ArmServer:
+class ArmService:
     def __init__(self):
         self.kinematics = RobotKinematics()
         self.serial = Esp32Serial()
@@ -121,9 +121,9 @@ class ArmServer:
                         self.target_pose[1] += pad.get('lx', 0) * config.SPEED_LINEAR
                         self.target_pose[2] -= pad.get('ry', 0) * config.SPEED_LINEAR
                     else:
-                        self.target_pose[3] += pad.get('lx', 0) * config.SPEED_ANGULAR
-                        self.target_pose[4] += pad.get('ly', 0) * config.SPEED_ANGULAR
-                        self.target_pose[5] -= pad.get('rx', 0) * config.SPEED_ANGULAR
+                        self.target_pose[3] -= pad.get('rx', 0) * config.SPEED_ANGULAR # Roll (rx)
+                        self.target_pose[4] += pad.get('ly', 0) * config.SPEED_ANGULAR # Pitch (ly)
+                        self.target_pose[5] += pad.get('lx', 0) * config.SPEED_ANGULAR # Yaw (lx)
 
                     dist = math.sqrt(self.target_pose[0]**2 + self.target_pose[1]**2 + self.target_pose[2]**2)
                     if dist > config.MAX_REACH:
@@ -263,5 +263,5 @@ class ArmServer:
             self.context.term()
 
 if __name__ == "__main__":
-    server = ArmServer()
+    server = ArmService()
     server.start()

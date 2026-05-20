@@ -72,11 +72,11 @@ class RobotKinematics:
             yaw = math.atan2(T06[1][0], T06[0][0])
             roll = 0.0
         
-        ee_full_pose = [ee_pos[0], ee_pos[1], ee_pos[2], yaw, pitch, roll]
+        ee_full_pose = [ee_pos[0], ee_pos[1], ee_pos[2], roll, pitch, yaw]
         return [shoulder, elbow, wrist, ee_pos], ee_full_pose
 
     def solve_ik(self, target_pose):
-        yaw, pitch, roll = target_pose[3], target_pose[4], target_pose[5]
+        roll, pitch, yaw = target_pose[3], target_pose[4], target_pose[5]
         
         cy, sy = math.cos(yaw), math.sin(yaw)
         cp, sp = math.cos(pitch), math.sin(pitch)

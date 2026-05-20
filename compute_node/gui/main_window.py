@@ -273,7 +273,6 @@ class MainWindow(QMainWindow):
             layout.addWidget(lbl, 0, col)
             
         self.servo_data = []
-        # ZMIANA: Usunięte spacje przed nawiasami z numerami serw
         names = ["Base(0)", "Shoulder L(1)", "Shoulder R(2)", "Upper Arm(3)", "Forearm(4)", "Wrist Pit(5)", "Wrist Rol(6)", "Gripper(7)"]
         
         for row, name in enumerate(names, start=1):
@@ -392,9 +391,9 @@ class MainWindow(QMainWindow):
             self.target_val_labels["X"].setText(f"X:\n{t[0]:.1f}")
             self.target_val_labels["Y"].setText(f"Y:\n{t[1]:.1f}")
             self.target_val_labels["Z"].setText(f"Z:\n{t[2]:.1f}")
-            self.target_val_labels["Roll"].setText(f"Rol:\n{t[5]:.2f}")
+            self.target_val_labels["Roll"].setText(f"Rol:\n{t[3]:.2f}")
             self.target_val_labels["Pitch"].setText(f"Pit:\n{t[4]:.2f}")
-            self.target_val_labels["Yaw"].setText(f"Yaw:\n{t[3]:.2f}")
+            self.target_val_labels["Yaw"].setText(f"Yaw:\n{t[5]:.2f}")
 
         self.status_labels["node"].setText(f"Controller: {data.get('node_status')}")
         self.status_labels["node"].setStyleSheet("color: #4e9a06; font-weight: bold;")
