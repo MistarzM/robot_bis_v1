@@ -42,10 +42,10 @@ class Esp32Serial:
     def send_positions(self, pos_dict):
         if self.is_connected:
             cmd_batch = (
-                f"0,{int(pos_dict[0])}\n1,{int(pos_dict[1])}\n"
-                f"2,{4095 - int(pos_dict[1])}\n3,{int(pos_dict[3])}\n"
-                f"4,{int(pos_dict[4])}\n5,{int(pos_dict[5])}\n"
-                f"6,{int(pos_dict[6])}\n7,{int(pos_dict[7])}\n"
+                f"0,{int(pos_dict.get(0, 2048))}\n1,{int(pos_dict.get(1, 2048))}\n"
+                f"2,{int(pos_dict.get(2, 2048))}\n3,{int(pos_dict.get(3, 2048))}\n"
+                f"4,{int(pos_dict.get(4, 2048))}\n5,{int(pos_dict.get(5, 2048))}\n"
+                f"6,{int(pos_dict.get(6, 2048))}\n7,{int(pos_dict.get(7, 2048))}\n"
             )
             self.ser.write(cmd_batch.encode('utf-8'))
 

@@ -54,7 +54,7 @@ class ArmService:
         phys_pos = {}
         max_servo = getattr(config, 'MAX_SERVO', 4095)
         
-        for s_id in [0, 1, 2, 3, 4, 5, 6, 7]:
+        for s_id in [0, 1, 3, 4, 5, 6, 7]:
             base_val = config.ELBOW_DOWN_POS.get(s_id, 2048)
             virt_pos = self.kinematics.pos.get(s_id, base_val)
             delta = virt_pos - base_val
@@ -64,11 +64,14 @@ class ArmService:
             else:
                 phys_pos[s_id] = base_val + delta
                 
-            if s_id == 1:
-                phys_pos[2] = config.ELBOW_DOWN_POS.get(2, 2048) + delta
+        base_1 = config.ELBOW_DOWN_POS.get(1, 2048)
+        virt_pos_1 = self.kinematics.pos.get(1, base_1)
+        delta_1 = virt_pos_1 - base_1
+        
+        phys_pos[2] = config.ELBOW_DOWN_POS.get(2, 2048) + delta_1
                 
         phys_pos[7] = max(0, min(max_servo, phys_pos.get(7, 2048)))
-        return phys_pos
+        return phys_pos 
 
     def perform_homing(self):
         self.is_homing = True
