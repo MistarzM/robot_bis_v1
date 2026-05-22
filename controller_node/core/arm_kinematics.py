@@ -10,13 +10,27 @@ class ArmKinematics:
         self.last_t5 = self.raw_to_rad(config.ELBOW_DOWN_POS[5], 5)
         self.last_t6 = self.raw_to_rad(config.ELBOW_DOWN_POS[6], 6)
 
+    def _get_virtual_limits(self, servo_id):
+        """Translates user's physical hardware limits to virtual IK math limits"""
+        min_phys, max_phys = config.JOINT_LIMITS.get(servo_id, (0, 4095))
+        
+        # ID 1 and 3 are physically inverted via: phys = base - (virt - base)
+        # We need to solve this for virt: virt = 2*base - phys
+        if servo_id in [1, 3]:
+            base = config.ELBOW_DOWN_POS.get(servo_id, 2048)
+            virt_max = 2 * base - min_phys # Inverting min gives max
+            virt_min = 2 * base - max_phys # Inverting max gives min
+            return virt_min, virt_max
+            
+        return min_phys, max_phys
+
     def raw_to_rad(self, raw_val, servo_id):
         return math.radians((raw_val - config.ZERO_POS[servo_id]) * 0.088)
 
     def rad_to_raw(self, rad, servo_id):
         raw = int(config.ZERO_POS[servo_id] + (math.degrees(rad) / 0.088))
-        min_val, max_val = config.JOINT_LIMITS.get(servo_id, (0, 4095))
-        return np.clip(raw, min_val, max_val)
+        v_min, v_max = self._get_virtual_limits(servo_id)
+        return np.clip(raw, v_min, v_max)
 
     def dh_matrix(self, a, alpha, d, theta):
         ct, st = math.cos(theta), math.sin(theta)
@@ -175,5 +189,6 @@ class ArmKinematics:
             step = np.clip(diff, -config.MAX_STEP, config.MAX_STEP)
             
             new_pos = self.pos[servo_id] + step
-            min_limit, max_limit = config.JOINT_LIMITS.get(servo_id, (0, 4095))
-            self.pos[servo_id] = np.clip(new_pos, min_limit, max_limit)
+            
+            v_min, v_max = self._get_virtual_limits(servo_id)
+            self.pos[servo_id] = np.clip(new_pos, v_min, v_max)

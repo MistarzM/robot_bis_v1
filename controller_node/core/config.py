@@ -70,11 +70,12 @@ JOINT_LIMITS = {
     4: (0, 4095),       # Forearm (full range)
     5: (1200, 3400),    # Wrist Pitch
     6: (0, 4095),       # Wrist Roll (full range)
-    7: (2500, 3400)     # Gripper 
+    7: (2300, 3800)     # Gripper 
 }
 
-# CHASSIS CONFIGURATION (UGV02)
+# CHASSIS CONFIGURATION
 CHASSIS_PORT = '/dev/ttyACM0'  
 CHASSIS_BAUD = 115200
 CHASSIS_MAX_SPEED = 0.4
-CHASSIS_ACCEL_STEP = 0.01
+CHASSIS_ACCEL_STEP = 0.01 
+CHASSIS_DECEL_STEP = 0.05  
