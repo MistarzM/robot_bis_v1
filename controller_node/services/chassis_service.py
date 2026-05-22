@@ -38,11 +38,9 @@ def start_chassis():
     def smooth_step(current, target):
         """Intelligently applies slow acceleration or fast deceleration"""
         if current < target:
-            # Moving in positive direction
             step = decel_step if current < 0 else accel_step
             return min(current + step, target)
         elif current > target:
-            # Moving in negative direction
             step = decel_step if current > 0 else accel_step
             return max(current - step, target)
         return current
@@ -70,7 +68,11 @@ def start_chassis():
 
                 if mode == "DRIVING" and pad.get("connected"):
                     target_x = -pad.get("ly", 0.0) * config.CHASSIS_MAX_SPEED
-                    target_z = -pad.get("lx", 0.0) * config.CHASSIS_MAX_SPEED
+                    
+                    if target_x < -0.01:
+                        target_z = pad.get("lx", 0.0) * config.CHASSIS_MAX_SPEED
+                    else:
+                        target_z = -pad.get("lx", 0.0) * config.CHASSIS_MAX_SPEED
                 else:
                     target_x = 0.0
                     target_z = 0.0
