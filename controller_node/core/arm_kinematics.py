@@ -2,7 +2,7 @@ import math
 import numpy as np
 from core import config
 
-class RobotKinematics:
+class ArmKinematics:
     def __init__(self):
         self.pos = config.ELBOW_DOWN_POS.copy()
         

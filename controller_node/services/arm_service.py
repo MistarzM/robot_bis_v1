@@ -4,12 +4,12 @@ import math
 import re
 import socket
 from core import config
-from core.kinematics import RobotKinematics
+from core.arm_kinematics import ArmKinematics
 from hardware.serial_link import Esp32Serial
 
 class ArmService:
     def __init__(self):
-        self.kinematics = RobotKinematics()
+        self.kinematics = ArmKinematics()
         self.serial = Esp32Serial()
         
         self.context = zmq.Context()
@@ -124,9 +124,9 @@ class ArmService:
                         self.target_pose[1] += pad.get('lx', 0) * config.SPEED_LINEAR
                         self.target_pose[2] -= pad.get('ry', 0) * config.SPEED_LINEAR
                     else:
-                        self.target_pose[3] -= pad.get('rx', 0) * config.SPEED_ANGULAR # Roll (rx)
-                        self.target_pose[4] += pad.get('ly', 0) * config.SPEED_ANGULAR # Pitch (ly)
-                        self.target_pose[5] += pad.get('lx', 0) * config.SPEED_ANGULAR # Yaw (lx)
+                        self.target_pose[3] -= pad.get('rx', 0) * config.SPEED_ANGULAR 
+                        self.target_pose[4] += pad.get('ly', 0) * config.SPEED_ANGULAR 
+                        self.target_pose[5] += pad.get('lx', 0) * config.SPEED_ANGULAR 
 
                     dist = math.sqrt(self.target_pose[0]**2 + self.target_pose[1]**2 + self.target_pose[2]**2)
                     if dist > config.MAX_REACH:
