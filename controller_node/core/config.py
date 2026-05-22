@@ -65,10 +65,10 @@ ZERO_POS = {
 
 JOINT_LIMITS = {
     0: (0, 4095),       # Base (full range)
-    1: (1200, 3500),    # Shoulder L 
-    3: (1200, 3300),    # Elbow 
+    1: (1200, 3400),    # Shoulder L 
+    3: (1200, 3200),    # Elbow 
     4: (0, 4095),       # Forearm (full range)
-    5: (1200, 3400),    # Wrist Pitch
+    5: (1250, 3350),    # Wrist Pitch
     6: (0, 4095),       # Wrist Roll (full range)
     7: (1900, 3850)     # Gripper 
 }
