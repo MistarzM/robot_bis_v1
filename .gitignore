@@ -20,3 +20,6 @@ Thumbs.db
 *.pt
 *.pth
 runs/
+
+# log files
+*.log

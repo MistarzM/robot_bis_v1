@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QTextEdit, QGridLayout, QPushButton, QDialog
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
+import time
 from gui.network_worker import NetworkWorker, VideoWorker, TelemetryWorker
 
 class SettingsDialog(QDialog):
@@ -81,6 +82,7 @@ class MainWindow(QMainWindow):
 
         self.worker = NetworkWorker()
         self.worker.status_signal.connect(self.update_pad_status)
+        self.worker.boot_logs_signal.connect(self.handle_boot_logs) # NEW: Listen to synced logs
         
         top_bar = QHBoxLayout()
         top_bar.addStretch()
@@ -116,6 +118,23 @@ class MainWindow(QMainWindow):
         self.video_worker = VideoWorker()
         self.video_worker.frame_signal.connect(self.update_camera_frame)
         self.video_worker.start()
+
+    def log_to_file(self, message):
+        """Appends system logs to compute_node.log file with a local timestamp"""
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            with open("compute_node.log", "a", encoding="utf-8") as f:
+                f.write(f"[{timestamp}] {message}\n")
+        except Exception as e:
+            print(f"Logging error: {e}")
+
+    def handle_boot_logs(self, boot_logs):
+        """Processes and logs the early boot history sent by the robot on startup"""
+        for log in boot_logs:
+            self.log_to_file(log)
+            self.txt_console.append(log)
+        sb = self.txt_console.verticalScrollBar()
+        sb.setValue(sb.maximum())
 
     def open_settings(self):
         self.worker.mapping_mode = True
@@ -448,8 +467,11 @@ class MainWindow(QMainWindow):
         self.lbl_battery.setText(f"{volts:.2f} V")
         self.lbl_battery.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {'red' if volts > 0 and volts < 10.5 else '#4e9a06'};")
 
+        # --- LIVE LOGGING ---
         for log in data.get("logs", []):
+            self.log_to_file(log) 
             self.txt_console.append(log)
+        if data.get("logs"):
             sb = self.txt_console.verticalScrollBar()
             sb.setValue(sb.maximum())
 

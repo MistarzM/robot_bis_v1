@@ -8,33 +8,34 @@ from core import config
 from ai_vision.object_detector import YoloDetector
 
 BUTTON_DICT = {
-    "BTN_0": "Cross (X)",
-    "BTN_1": "Circle (O)",
-    "BTN_2": "Square (□)",
+    "BTN_0": "Cross (X)", 
+    "BTN_1": "Circle (O)", 
+    "BTN_2": "Square (□)", 
     "BTN_3": "Triangle (△)",
-    "BTN_4": "Share",
-    "BTN_5": "PS Button",
-    "BTN_6": "Options",
-    "BTN_7": "L3",
+    "BTN_4": "Share", 
+    "BTN_5": "PS Button", 
+    "BTN_6": "Options", 
+    "BTN_7": "L3", 
     "BTN_8": "R3",
-    "BTN_9": "L1",
-    "BTN_10": "R1",
-    "BTN_11": "D-Pad Up (↑)",   
-    "BTN_12": "D-Pad Down (↓)", 
-    "BTN_13": "D-Pad Left (←)",
-    "BTN_14": "D-Pad Right (→)",
+    "BTN_9": "L1", 
+    "BTN_10": "R1", 
+    "BTN_11": "D-Pad Up (↑)", 
+    "BTN_12": "D-Pad Down (↓)",
+    "BTN_13": "D-Pad Left (←)", 
+    "BTN_14": "D-Pad Right (→)", 
     "HAT_0_UP": "D-Pad Up (↑)",
-    "HAT_0_DOWN": "D-Pad Down (↓)",
-    "HAT_0_LEFT": "D-Pad Left (←)",
+    "HAT_0_DOWN": "D-Pad Down (↓)", 
+    "HAT_0_LEFT": "D-Pad Left (←)", 
     "HAT_0_RIGHT": "D-Pad Right (→)",
-    "AXIS_4_POS": "L2 Trigger",
-    "AXIS_5_POS": "R2 Trigger",
+    "AXIS_4_POS": "L2 Trigger", 
+    "AXIS_5_POS": "R2 Trigger", 
     "UNASSIGNED": "UNASSIGNED"
 }
 
 class NetworkWorker(QThread):
     status_signal = Signal(bool, bool)
     mapping_updated_signal = Signal(dict)
+    boot_logs_signal = Signal(list) 
 
     def __init__(self):
         super().__init__()
@@ -54,13 +55,8 @@ class NetworkWorker(QThread):
         }
         
         self.pad_mapping = {
-            'XYZ': 'BTN_2',           
-            'RPY': 'BTN_3',           
-            'DRIVING': 'BTN_1',       
-            'AUTONOMOUS': 'BTN_0',    
-            'HOMING': 'BTN_12',       
-            'GRIP_OPEN': 'AXIS_5_POS',
-            'GRIP_CLOSE': 'AXIS_4_POS'
+            'XYZ': 'BTN_2', 'RPY': 'BTN_3', 'DRIVING': 'BTN_1', 'AUTONOMOUS': 'BTN_0',    
+            'HOMING': 'BTN_12', 'GRIP_OPEN': 'AXIS_5_POS', 'GRIP_CLOSE': 'AXIS_4_POS'
         }
         self.assigning_action = None
         self.mapping_mode = False
@@ -80,6 +76,16 @@ class NetworkWorker(QThread):
     def run(self):
         self.socket.connect(self.robot_url)
 
+        # --- NEW: Request early boot logs upon connection ---
+        try:
+            self.socket.send_json({"command": "GET_BOOT_LOGS"})
+            reply = self.socket.recv_json()
+            if reply.get("status") == "OK":
+                self.boot_logs_signal.emit(reply.get("boot_logs", []))
+        except Exception as e:
+            print(f"[ZMQ LOG SYNC ERROR] {e}")
+        # ----------------------------------------------------
+
         while self.is_running:
             raw = self.gamepad.read_raw_state()
             
@@ -87,8 +93,7 @@ class NetworkWorker(QThread):
                 pressed = self.gamepad.get_pressed_input(raw)
                 if pressed:
                     for k, v in list(self.pad_mapping.items()):
-                        if v == pressed:
-                            self.pad_mapping[k] = "UNASSIGNED"
+                        if v == pressed: self.pad_mapping[k] = "UNASSIGNED"
                             
                     self.pad_mapping[self.assigning_action] = pressed
                     self.assigning_action = None
@@ -125,10 +130,8 @@ class NetworkWorker(QThread):
                     return 0.0 if abs(val) < 0.15 else val
                 
                 if not self.mapping_mode:
-                    pad['lx'] = get_ax(0)
-                    pad['ly'] = get_ax(1)
-                    pad['rx'] = get_ax(2)
-                    pad['ry'] = get_ax(3)
+                    pad['lx'] = get_ax(0); pad['ly'] = get_ax(1)
+                    pad['rx'] = get_ax(2); pad['ry'] = get_ax(3)
 
             if not pad.get('connected'): pad['connected'] = True 
                 
@@ -184,8 +187,7 @@ class TelemetryWorker(QThread):
             except zmq.Again: pass
             time.sleep(0.02) 
     def stop(self):
-        self.is_running = False
-        self.wait()
+        self.is_running = False; self.wait()
 
 class VideoWorker(QThread):
     frame_signal = Signal(bytes)
@@ -212,5 +214,4 @@ class VideoWorker(QThread):
                     self.frame_signal.emit(buffer.tobytes())
             except zmq.Again: pass 
     def stop(self):
-        self.is_running = False
-        self.wait()
+        self.is_running = False; self.wait()

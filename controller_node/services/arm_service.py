@@ -3,6 +3,7 @@ import zmq
 import math
 import re
 import socket
+import os
 from core import config
 from core.arm_kinematics import ArmKinematics
 from hardware.serial_link import Esp32Serial
@@ -76,7 +77,10 @@ class ArmService:
     def perform_homing(self):
         self.is_homing = True
         self.arm_status = "HOMING"
-        self.sys_logs.append("[INFO] Homing sequence started...")
+        
+        msg_start = "[INFO] Homing sequence started..."
+        print(msg_start, flush=True)
+        self.sys_logs.append(msg_start)
         
         for s_id in self.servo_stats:
             self.servo_stats[s_id].update({'temp': '--', 'volt': '--', 'curr': '--', 'status': 'OK'})
@@ -101,9 +105,22 @@ class ArmService:
             
         self.is_homing = False
         self.arm_status = "ACTIVE"
-        self.sys_logs.append("[SUCC] Homing complete.")
+        
+        msg_end = "[SUCC] Homing complete."
+        print(msg_end, flush=True)
+        self.sys_logs.append(msg_end)
 
     def process_request(self, msg):
+        if msg.get("command") == "GET_BOOT_LOGS":
+            try:
+                if os.path.exists("robot.log"):
+                    with open("robot.log", "r", encoding="utf-8") as f:
+                        lines = f.readlines()
+                    return {"status": "OK", "boot_logs": [l.strip() for l in lines if l.strip()]}
+                return {"status": "OK", "boot_logs": ["[SYSTEM] No log file found on robot disk yet."]}
+            except Exception as e:
+                return {"status": "ERROR", "message": str(e)}
+
         if msg.get("command") == "CONTROL":
             pad = msg.get("pad", {})
             if pad.get("connected") and not self.is_homing:
@@ -176,17 +193,17 @@ class ArmService:
 
     def start(self):
         self.serial.connect()
-        print(f"[NET] Control: {config.ZMQ_CONTROL_PORT} | Feedback: {config.ZMQ_FEEDBACK_PORT}")
+        print(f"[NET] Control: {config.ZMQ_CONTROL_PORT} | Feedback: {config.ZMQ_FEEDBACK_PORT}", flush=True)
         
         local_ip = self._get_local_ip()
-        print(f"[INFO] Publishing IP to OLED: {local_ip}")
+        print(f"[INFO] Publishing IP to OLED: {local_ip}", flush=True)
         self.serial.send_ip(local_ip)
         time.sleep(0.5)
 
-        print("[INFO] Executing Auto-Homing on startup...")
+        print("[INFO] Executing Auto-Homing on startup...", flush=True)
         self.perform_homing() 
         
-        print("[INFO] Fetching initial telemetry...")
+        print("[INFO] Fetching initial telemetry...", flush=True)
         boot_start = time.time()
         while time.time() - boot_start < 5.0:
             self.serial.request_stat()
@@ -210,7 +227,7 @@ class ArmService:
                                 })
                         except: pass
             if has_data:
-                print("[INFO] Initial telemetry synchronized! Systems GO.")
+                print("[INFO] Initial telemetry synchronized! Systems GO.", flush=True)
                 break
 
         try:
@@ -228,6 +245,7 @@ class ArmService:
                             if id_m:
                                 s_id = int(id_m.group(1))
                                 self.servo_stats[s_id].update({'status': 'ERROR', 'temp': '--', 'volt': '--', 'curr': '--'})
+                            print(line, flush=True)
                             self.sys_logs.append(line)
                         elif "Temp:" in line and "Volt:" in line:
                             try:
@@ -243,6 +261,7 @@ class ArmService:
                                     })
                             except: pass
                         elif "[STAT]" not in line: 
+                            print(line, flush=True)
                             self.sys_logs.append(line)
 
                 self.broadcast_telemetry()
@@ -250,7 +269,8 @@ class ArmService:
                 try:
                     msg = self.socket.recv_json(flags=zmq.NOBLOCK)
                     reply = self.process_request(msg)
-                    if not self.is_homing and self.current_mode != "DRIVING":
+                    # Force positions update only during interactive control commands
+                    if not self.is_homing and self.current_mode != "DRIVING" and msg.get("command") == "CONTROL":
                         self.serial.send_positions(self._get_physical_positions())
                     self.socket.send_json(reply)
                 except zmq.Again: 
