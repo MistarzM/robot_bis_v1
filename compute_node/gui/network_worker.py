@@ -20,7 +20,7 @@ BUTTON_DICT = {
     "BTN_9": "L1",
     "BTN_10": "R1",
     "BTN_11": "D-Pad Up (↑)",   
-    "BTN_12": "D-Pad Down (↓)", # Tutaj mapuje się krzyżak w dół na PS5/Mac
+    "BTN_12": "D-Pad Down (↓)", 
     "BTN_13": "D-Pad Left (←)",
     "BTN_14": "D-Pad Right (→)",
     "HAT_0_UP": "D-Pad Up (↑)",
@@ -53,13 +53,12 @@ class NetworkWorker(QThread):
             'dpad_down': False
         }
         
-        # ZMIANA: Zaktualizowane domyślne mapowanie pod pada PS5
         self.pad_mapping = {
             'XYZ': 'BTN_2',           
             'RPY': 'BTN_3',           
             'DRIVING': 'BTN_1',       
             'AUTONOMOUS': 'BTN_0',    
-            'HOMING': 'BTN_12',       # Było HAT_0_DOWN, teraz jest domyślnie pod pada PS5
+            'HOMING': 'BTN_12',       
             'GRIP_OPEN': 'AXIS_5_POS',
             'GRIP_CLOSE': 'AXIS_4_POS'
         }
