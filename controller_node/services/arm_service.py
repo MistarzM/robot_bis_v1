@@ -135,10 +135,11 @@ class ArmService:
                 else:
                     self.arm_status = "IDLE"
 
-                max_servo = getattr(config, 'MAX_SERVO', 4095)
                 if pad.get('l2', 0) > 0.05: self.kinematics.pos[7] -= (pad.get('l2', 0) * config.GRIP_SPEED)
                 if pad.get('r2', 0) > 0.05: self.kinematics.pos[7] += (pad.get('r2', 0) * config.GRIP_SPEED)
-                self.kinematics.pos[7] = max(0, min(max_servo, self.kinematics.pos[7]))
+                
+                grip_min, grip_max = config.JOINT_LIMITS.get(7, (0, 4095))
+                self.kinematics.pos[7] = max(grip_min, min(grip_max, self.kinematics.pos[7]))
 
                 if pad.get('dpad_down', False):
                     self.perform_homing()

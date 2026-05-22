@@ -15,7 +15,8 @@ class RobotKinematics:
 
     def rad_to_raw(self, rad, servo_id):
         raw = int(config.ZERO_POS[servo_id] + (math.degrees(rad) / 0.088))
-        return np.clip(raw, 0, 4095)
+        min_val, max_val = config.JOINT_LIMITS.get(servo_id, (0, 4095))
+        return np.clip(raw, min_val, max_val)
 
     def dh_matrix(self, a, alpha, d, theta):
         ct, st = math.cos(theta), math.sin(theta)
@@ -172,4 +173,7 @@ class RobotKinematics:
         for servo_id in [0, 1, 3, 4, 5, 6]:
             diff = target_raw[servo_id] - self.pos[servo_id]
             step = np.clip(diff, -config.MAX_STEP, config.MAX_STEP)
-            self.pos[servo_id] += step
+            
+            new_pos = self.pos[servo_id] + step
+            min_limit, max_limit = config.JOINT_LIMITS.get(servo_id, (0, 4095))
+            self.pos[servo_id] = np.clip(new_pos, min_limit, max_limit)

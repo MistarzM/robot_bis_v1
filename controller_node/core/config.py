@@ -63,6 +63,16 @@ ZERO_POS = {
     7: CALIB_END_EFFECTOR                                   
 }
 
+JOINT_LIMITS = {
+    0: (0, 4095),       # Base (full range)
+    1: (1500, 2500),    # Shoulder L 
+    3: (1000, 3000),    # Elbow 
+    4: (0, 4095),       # Forearm (full range)
+    5: (1200, 3400),    # Wrist Pitch
+    6: (0, 4095),       # Wrist Roll (full range)
+    7: (2500, 3400)     # Gripper 
+}
+
 # CHASSIS CONFIGURATION (UGV02)
 CHASSIS_PORT = '/dev/ttyACM0'  
 CHASSIS_BAUD = 115200
