@@ -232,8 +232,10 @@ class ArmService:
                 else:
                     self.arm_status = "IDLE"
 
-                if pad.get('l2', 0) > 0.05: self.kinematics.pos[7] -= (pad.get('l2', 0) * config.GRIP_SPEED)
-                if pad.get('r2', 0) > 0.05: self.kinematics.pos[7] += (pad.get('r2', 0) * config.GRIP_SPEED)
+                grip_open = pad.get('grip_open', 0)
+                grip_close = pad.get('grip_close', 0)
+                if grip_open > 0.05: self.kinematics.pos[7] -= grip_open * config.GRIP_SPEED
+                if grip_close > 0.05: self.kinematics.pos[7] += grip_close * config.GRIP_SPEED
 
                 grip_min, grip_max = config.JOINT_LIMITS.get(7, (0, 4095))
                 self.kinematics.pos[7] = max(grip_min, min(grip_max, self.kinematics.pos[7]))

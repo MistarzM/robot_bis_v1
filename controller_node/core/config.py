@@ -24,7 +24,7 @@ ARM_BAUD = 115200
 SPEED_LINEAR  = 2.0
 SPEED_ANGULAR = 0.02
 MAX_STEP      = 16
-GRIP_SPEED    = 5
+GRIP_SPEED    = 10
 
 # Arm link dimensions (mm)
 A1 = 52.0
