@@ -23,3 +23,38 @@ runs/
 
 # log files
 *.log
+
+#latex
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.synctex(busy)
+*.bbl
+*.bcf
+*.blg
+*-blx.bib
+*.run.xml
+*.lof
+*.lot
+*.idx
+*.ind
+*.ilg
+*.glg
+*.glo
+*.gls
+*.glsdefs
+*.ist
+*.acn
+*.acr
+*.alg
+*.nav
+*.snm
+*.vrb
+*.xdv
+
+# *.pdf
+# *.dvi
