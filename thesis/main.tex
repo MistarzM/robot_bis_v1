@@ -307,75 +307,101 @@ Dodatkowy górny pokład posłużył do ergonomicznego rozmieszczenia elektronik
 % =========================================================================
 \chapter{Architektura systemu sterowania i komunikacja}
 
-Współczesne systemy robotyczne, szczególnie te integrujące algorytmy sztucznej inteligencji z fizycznymi układami wykonawczymi, wymagają starannie zaprojektowanej architektury oprogramowania. Głównym wyzwaniem w takich projektach jest zapewnienie płynnej i szybkiej wymiany danych pomiędzy warstwą percepcyjną, modułem decyzyjnym oraz sprzętowymi kontrolerami napędów. Niniejszy rozdział opisuje strukturę logiczną stworzonego systemu, podział ról pomiędzy jednostkami obliczeniowymi oraz zastosowane technologie komunikacyjne.
+Współczesne systemy robotyczne, szczególnie te integrujące algorytmy sztucznej inteligencji z fizycznymi układami wykonawczymi, wymagają starannie zaprojektowanej architektury oprogramowania. Głównym wyzwaniem w takich projektach jest zapewnienie płynnej i szybkiej wymiany danych pomiędzy warstwą percepcyjną, modułem sterującym oraz sprzętowymi kontrolerami napędów. Niniejszy rozdział opisuje strukturę logiczną stworzonego systemu, podział ról pomiędzy jednostkami obliczeniowymi oraz zastosowane technologie komunikacyjne.
 
 \section{Logiczny podział ról w architekturze rozproszonej}
 
-Zastosowanie zaawansowanych modeli głębokich sieci neuronowych (takich jak algorytm YOLO) do analizy obrazu w czasie rzeczywistym wymaga znacznych zasobów obliczeniowych, w szczególności dostępu do wydajnych akceleratorów graficznych. Z tego względu w projekcie zrezygnowano ze scentralizowanego przetwarzania wszystkich danych wyłącznie na pokładzie robota. Zamiast tego wdrożono architekturę systemu rozproszonego. Jak zauważa się w literaturze przedmiotu, przeniesienie złożonych obliczeniowo zadań z mobilnych jednostek o ograniczonym budżecie energetycznym na zewnętrzne stacje robocze pozwala na sprawniejszą realizację algorytmów nawigacji i percepcji, znacząco zwiększając możliwości poznawcze układów zrobotyzowanych \cite{siegwart2011introduction, siciliano2016springer}.
+Zastosowanie zaawansowanych modeli głębokich sieci neuronowych (takich jak algorytm YOLO) do analizy obrazu w czasie rzeczywistym wymaga znacznych zasobów obliczeniowych, w szczególności dostępu do wydajnych akceleratorów. Z tego względu w projekcie zrezygnowano ze scentralizowanego przetwarzania wszystkich danych wyłącznie na pokładzie robota. Zamiast tego wdrożono architekturę systemu rozproszonego. Jak zauważa się w literaturze przedmiotu, przeniesienie złożonych obliczeniowo zadań z mobilnych jednostek o ograniczonym budżecie energetycznym na zewnętrzne stacje robocze pozwala na sprawniejszą realizację algorytmów percepcji, znacząco zwiększając możliwości poznawcze układów zrobotyzowanych \cite{siegwart2011introduction}.
 
 W zaprojektowanym systemie wydzielono dwa główne węzły (ang. \textit{nodes}), z których każdy pełni ściśle określoną funkcję:
 
 \begin{itemize}
     \item \textbf{Węzeł obliczeniowy (ang. \textit{Compute Node}) -- Stacja operatorska:}
-    Stanowi centrum decyzyjne i percepcyjne systemu. Rolę tę pełni zewnętrzny komputer (laptop) wyposażony w środowisko zdolne do szybkiej inferencji modelu detekcji obiektów. Jednostka ta odbiera surowy strumień wideo z robota, poddaje go analizie w poszukiwaniu docelowych obiektów, a następnie – na podstawie uzyskanych współrzędnych z ramki obrazu – oblicza wymagane komendy ruchowe i docelowe kąty dla poszczególnych stawów ramienia manipulacyjnego. Obliczone pakiety danych sterujących są niezwłocznie odsyłane z powrotem do robota.
+    Stanowi centrum percepcyjne i nadrzędny interfejs sterujący całego systemu. Rolę tę pełni zewnętrzny komputer (laptop) wyposażony w środowisko zdolne do szybkiej inferencji modelu detekcji obiektów. Jednostka ta odbiera surowy strumień wideo z robota i w czasie rzeczywistym poddaje go analizie wizyjnej, lokalizując docelowe obiekty w kadrze poprzez wyznaczanie i wizualizację ramek ograniczających (ang. \textit{bounding boxes}). Równolegle, stacja operatorska służy do generowania i wysyłania wysokopoziomowych danych sterujących (np. współrzędnych docelowych) do robota.
     
     \item \textbf{Węzeł sterujący (ang. \textit{Controller Node}) -- Jednostka pokładowa:}
-    Zadanie to realizowane jest przez mikrokomputer Raspberry Pi 5 znajdujący się fizycznie na platformie jezdnej. Pełni on rolę inteligentnego interfejsu (mostu) pomiędzy światem fizycznym a stacją operatorską. Do jego głównych zadań należy nieprzerwana akwizycja obrazu z kamery USB i strumieniowanie go przez sieć bezprzewodową Wi-Fi. Równolegle mikrokomputer ten nasłuchuje komend napływających z węzła obliczeniowego. Po odebraniu pożądanych kątów dla serwomechanizmów, Raspberry Pi przekazuje je interfejsem szeregowym do sterownika ESP32 (Servo Driver), który zajmuje się już bezpośrednim wysterowaniem napędów.
+    Zadanie to realizowane jest przez mikrokomputer Raspberry Pi 5 znajdujący się fizycznie na platformie jezdnej. Do jego głównych zadań należy nieprzerwana akwizycja obrazu z kamery USB i strumieniowanie go przez sieć Wi-Fi do stacji operatorskiej. Równolegle jednostka ta odbiera wysokopoziomowe komendy ruchu. Wykorzystując zaimplementowany algorytm analitycznej kinematyki odwrotnej (ang. \textit{Inverse Kinematics} -- IK), Raspberry Pi przelicza otrzymane dane na docelowe kąty obrotu dla poszczególnych stawów ramienia. Z uwagi na analityczny (równaniowy) charakter modelu, obliczenia te są wysoce zoptymalizowane i realizowane w ułamku sekundy, nie obciążając znacząco procesora. Następnie wyliczone pozycje przekazywane są interfejsem szeregowym do sterownika ESP32 (Servo Driver), który realizuje ruch napędów.
 \end{itemize}
 
-Taki ścisły podział kompetencji niesie za sobą wymierne korzyści inżynierskie. Odciąża procesor jednostki pokładowej, pozwalając mu skupić się wyłącznie na utrzymaniu bezbłędnej komunikacji i płynności strumienia wideo. Jednocześnie zapewnia elastyczność – stację operatorską można w dowolnym momencie zmodernizować w celu uzyskania większej liczby klatek na sekundę (FPS) bez konieczności ingerencji w sprzętową konstrukcję samego robota.
+Taki ścisły podział kompetencji niesie za sobą wymierne korzyści inżynierskie. Odciąża procesor jednostki pokładowej z zadań wizyjnych, pozwalając mu skupić się na obliczeniach kinematycznych i utrzymaniu stabilnej komunikacji. Jednocześnie zapewnia elastyczność – stację operatorską można w dowolnym momencie zmodernizować w celu uzyskania szybszej inferencji AI, bez konieczności ingerencji w sprzęt i oprogramowanie samego robota.
 
-\section{Topologia sieci i komunikacja bezprzewodowa}
-\section{Zapewnienie bezpieczeństwa logicznego}
+\section{Topologia sieci i protokoły komunikacyjne}
 
+Zapewnienie stabilnej, asynchronicznej i niskopoziomowej wymiany danych między stacją operatorską a robotem jest zadaniem krytycznym z punktu widzenia płynności sterowania. Zamiast tradycyjnego modelu opartego na surowych gniazdach TCP/UDP, w projekcie wdrożono wydajną bibliotekę asynchronicznego przesyłania wiadomości \textit{ZeroMQ} (ZMQ). Rozwiązanie to warunkuje wysoką przepustowość, automatyczne zarządzanie retransmisją oraz oferuje wbudowane wzorce komunikacyjne, co stanowi standard w nowoczesnych, rozproszonych systemach robotycznych.
+
+Fizyczną warstwę transportową stanowi standardowa sieć bezprzewodowa Wi-Fi (IEEE 802.11). Mikrokomputer Raspberry Pi pobiera swój lokalny adres IP i wyświetla go na module OLED, co umożliwia stacji bazowej nawiązanie bezpośredniego połączenia. Z punktu widzenia oprogramowania, zewnętrzna topologia sieciowa została podzielona na trzy niezależne, równoległe kanały komunikacyjne (strumienie), z których każdy operuje na dedykowanym porcie i wykorzystuje zoptymalizowany wzorzec przesyłu danych:
+
+\begin{enumerate}
+    \item \textbf{Strumień Sterowania (Port 5555):} 
+    Odpowiada za przesyłanie poleceń ruchowych z węzła obliczeniowego do jednostki pokładowej. Zrealizowany jest w oparciu o wzorzec Żądanie-Odpowiedź (ang. \textit{Request-Reply}). Stacja bazowa (klient) cyklicznie wysyła pakiety w formacie JSON, zawierające m.in. aktualny stan kontrolera (gamepada) oraz wyliczone współrzędne docelowe. Główna usługa na robocie (ang. \textit{Arm Service}) odbiera pakiet, aplikuje go do równań kinematyki, a następnie odsyła potwierdzenie, zamykając cykl.
+
+    \item \textbf{Strumień Wideo (Port 5556):}
+    Dedykowany wyłącznie do transmisji obrazu z pokładowej kamery USB. Działa w oparciu o wzorzec Publikuj-Subskrybuj (ang. \textit{Publish-Subscribe}). Skrypt na Raspberry Pi przechwytuje klatki, dokonuje ich natychmiastowej kompresji do formatu JPEG za pomocą biblioteki OpenCV, a następnie publikuje surowe ciągi bajtów. Aby zminimalizować zjawisko opóźnienia wizyjnego (ang. \textit{latency}), po stronie subskrybenta (laptopa) aktywowano sprzętową opcję \texttt{ZMQ\_CONFLATE}. Powoduje ona ignorowanie starszych, zalegających w buforze klatek wideo na rzecz przetwarzania wyłącznie tej najnowszej.
+    
+    \item \textbf{Strumień Telemetrii (Port 5557):}
+    Działa analogicznie do strumienia wideo (wzorzec PUB/SUB), przesyłając z robota do laptopa struktury danych JSON. Pakiety te zawierają zbiór krytycznych informacji diagnostycznych zebranych w czasie rzeczywistym, takich jak: napięcie głównego zasilania akumulatorowego, temperatury i prądy poszczególnych serwomechanizmów, aktualne kąty w stawach oraz logi systemowe.
+\end{enumerate}
+
+Warto zaznaczyć, że biblioteka ZeroMQ została wykorzystana nie tylko do komunikacji zewnętrznej, ale również wewnątrz samego środowiska robota. W celu separacji logicznej modułów, zarządzanie ramieniem oraz platformą jezdną rozdzielono na niezależne procesy (\textit{Arm Service} oraz \textit{Chassis Service}). Komunikują się one ze sobą lokalnie poprzez dedykowane, wewnętrzne porty (5558 i 5559), tworząc bezpieczną i odporną na błędy architekturę mikrousług (ang. \textit{microservices}).
+
+\section{Architektura wieloprocesowa i nadzorca systemu (Supervisor)}
+
+Implementacja złożonego systemu zrobotyzowanego w środowisku języka Python wiąże się z koniecznością ominięcia ograniczeń wynikających z globalnej blokady interpretera (ang. \textit{Global Interpreter Lock} -- GIL). Wykonywanie intensywnych operacji wejścia/wyjścia (takich jak akwizycja wideo), ciągłe nasłuchiwanie portów sieciowych oraz przeliczanie kinematyki w pojedynczym procesie doprowadziłoby do znacznych opóźnień i utraty płynności sterowania. Z tego względu na pokładzie jednostki \textit{Controller Node} wdrożono architekturę wieloprocesową z centralnym węzłem zarządzającym.
+
+Główny skrypt startowy robota (\texttt{controller\_main.py}) nie realizuje bezpośrednio żadnych zadań percepcyjnych ani wykonawczych. Pełni on wyłącznie funkcję systemowego nadzorcy (ang. \textit{Process Supervisor}). Do jego zadań należy asynchroniczne uruchomienie i monitorowanie trzech kluczowych, niezależnych podprocesów:
+\begin{itemize}
+    \item \textbf{Arm Service:} moduł odpowiedzialny za komunikację ZMQ ze stacją bazową, obliczanie kinematyki oraz wysterowanie sterownika ESP32 ramienia.
+    \item \textbf{Camera Service:} moduł dedykowany wyłącznie do sprzętowej akwizycji klatek obrazu z interfejsu USB, ich kompresji oraz strumieniowania w sieć.
+    \item \textbf{Chassis Service:} moduł zarządzający komunikacją szeregową z mikrokontrolerem platformy jezdnej UGV02.
+\end{itemize}
+
+Takie podejście architektoniczne gwarantuje ścisłą izolację błędów (ang. \textit{fault isolation}). Awaria lub chwilowe zawieszenie się procesu obsługującego kamerę nie wpływa w żaden sposób na proces obliczający kinematykę ramienia, co pozwala na zachowanie ciągłości sterowania fizycznego.
+
+Co więcej, nadzorca systemu implementuje deterministyczny mechanizm reagowania na awarie krytyczne. W głównej pętli programu nieustannie weryfikowany jest status cyklu życia wszystkich uruchomionych podprocesów (metoda \texttt{poll()}). W przypadku wykrycia niespodziewanego zakończenia pracy któregokolwiek z serwisów (np. z powodu rozłączenia fizycznego przewodu), nadzorca natychmiastowo inicjuje procedurę awaryjnego zatrzymania systemu (ang. \textit{emergency shutdown}). Polega ona na bezpiecznym wysłaniu sygnałów terminacji (SIGTERM) do pozostałych działających modułów oraz poprawnym zamknięciu współdzielonego pliku logów (\texttt{robot.log}), który gromadzi diagnostyczne wyjścia standardowe (stdout/stderr) ze wszystkich podprocesów.
+
+Zastosowanie architektury wieloprocesowej nadzorowanej przez nadrzędny skrypt kontrolny sprawia, że oprogramowanie robota jest nie tylko wydajne i wolne od blokad (ang. \textit{non-blocking}), ale przede wszystkim wysoce odporne na błędy, co stanowi fundamentalny wymóg w projektowaniu nowoczesnej robotyki mobilnej.
+
+
+ % =========================================================================
+% ROZDZIAŁ 6 - Zmieniony profil na czysty kod robota (Raspberry + ESP32)
+% =========================================================================
+\chapter{Oprogramowanie pokładowe robota}
+\section{Sterownik serwomechanizmów i odczyt telemetrii z magistrali} % tu opiszemy serial_link.py
+\section{Implementacja kinematyki analitycznej manipulatora} % tu opiszemy wzory i IK
+\section{Ograniczenia przestrzeni roboczej i sprzętowe limity bezpieczeństwa} % tu przeniesiemy MAX_REACH i JOINT_LIMITS
+\section{Akwizycja i kompresja strumienia wideo z kamery pokładowej} % tu opiszemy camera_service.py
+\section{Sterowanie platformą jezdną} % tu opiszemy chassis_service.py
 
 % =========================================================================
-% ROZDZIAŁ 6
+% ROZDZIAŁ 7 - Idealnie zdefiniowany
 % =========================================================================
-\chapter{Implementacja oprogramowania wbudowanego}
-\section{Środowisko uruchomieniowe i procedury startowe}
-\section{Obsługa silników i odczyt telemetrii}
-\section{Implementacja kinematyki analitycznej ramienia}
-\section{Procedury kalibracji osi i bezpieczeństwo ruchu}
-\section{Przesył strumienia wideo z kamery pokładowej}
+\chapter{Implementacja modułu sztucznej inteligencji}
+\section{Przygotowanie i konfiguracja modelu detekcji YOLO}
+\section{Przetwarzanie obrazu w czasie rzeczywistym i augmentacja danych}
 
-
-% =========================================================================
-% ROZDZIAŁ 7
-% =========================================================================
-\chapter{Implementacja modułu uczenia maszynowego}
-\section{Przygotowanie i konfiguracja modelu detekcji}
-\section{Przetwarzanie obrazu w czasie rzeczywistym i klasyfikacja obiektów}
-
-
-% Poniższa komenda wymusza przeniesienie Rozdziału 8 na nową stronę W SPISIE TREŚCI
 \addtocontents{toc}{\protect\newpage}
 
-
 % =========================================================================
-% ROZDZIAŁ 8
+% ROZDZIAŁ 8 - Skupiony w 100% na aplikacji na PC (PySide6)
 % =========================================================================
-\chapter{Stworzenie aplikacji klienckiej}
-\section{Projekt graficznego interfejsu użytkownika}
+\chapter{Stworzenie stacji operatorskiej}
+\section{Projekt graficznego interfejsu użytkownika (GUI)}
 \section{Integracja bezprzewodowego kontrolera i mapowanie przycisków}
-\section{Tryby sterowania}
-\section{Wizualizacja telemetrii, wideo i logowanie systemu}
-
+\section{Wizualizacja telemetrii i synchronizacja danych} % połączone logowanie i wideo
 
 % =========================================================================
-% ROZDZIAŁ 9
+% ROZDZIAŁ 9 - Skupiony na testowaniu działania całości
 % =========================================================================
 \chapter{Testy funkcjonalne i weryfikacja systemu}
 \section{Weryfikacja działania układu jezdnego}
-\section{Testy kinematyki ramienia i precyzji chwytania obiektów}
-\section{Ewaluacja skuteczności algorytmów rozpoznawania obrazu}
-\section{Testy responsywności systemu i mechanizmów bezpieczeństwa}
-
+\section{Testy kinematyki ramienia i precyzji manipulacji}
+\section{Ewaluacja wydajności sieciowej i opóźnień (latency)} % Lepsze niż "mechanizmy bezp.", zbadamy tu działanie ZMQ
+\section{Skuteczność algorytmów rozpoznawania obrazu}
 
 % =========================================================================
 % ROZDZIAŁ 10
 % =========================================================================
-\chapter{Wnioski}
+\chapter{Wnioski i kierunki dalszego rozwoju}
 
 
 % =========================================================================
