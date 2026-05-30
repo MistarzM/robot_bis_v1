@@ -55,8 +55,13 @@ class NetworkWorker(QThread):
         }
         
         self.pad_mapping = {
-            'XYZ': 'BTN_2', 'RPY': 'BTN_3', 'DRIVING': 'BTN_1', 'AUTONOMOUS': 'BTN_0',    
-            'HOMING': 'BTN_12', 'GRIP_OPEN': 'AXIS_5_POS', 'GRIP_CLOSE': 'AXIS_4_POS'
+            'XYZ': 'BTN_2', 
+            'RPY': 'BTN_3', 
+            'DRIVING': 'BTN_1', 
+            'AUTONOMOUS': 'BTN_0',    
+            'HOMING': 'BTN_12', 
+            'GRIP_OPEN': 'AXIS_4_POS', 
+            'GRIP_CLOSE': 'AXIS_5_POS'
         }
         self.assigning_action = None
         self.mapping_mode = False
@@ -144,12 +149,13 @@ class NetworkWorker(QThread):
                 pad['btn_circle'] = (raw and is_active('DRIVING')) or self.vpad['btn_circle']
                 pad['btn_cross'] = (raw and is_active('AUTONOMOUS')) or self.vpad['btn_cross']
                 pad['dpad_down'] = (raw and is_active('HOMING')) or self.vpad['dpad_down']
-                pad['r2'] = 1.0 if (raw and is_active('GRIP_OPEN')) else 0.0
-                pad['l2'] = 1.0 if (raw and is_active('GRIP_CLOSE')) else 0.0
+                pad['grip_open'] = 1.0 if (raw and is_active('GRIP_OPEN')) else 0.0
+                pad['grip_close'] = 1.0 if (raw and is_active('GRIP_CLOSE')) else 0.0
             else:
                 pad['btn_square'] = False; pad['btn_triangle'] = False
                 pad['btn_circle'] = False; pad['btn_cross'] = False; pad['dpad_down'] = False
-                pad['r2'] = 0.0; pad['l2'] = 0.0
+                pad['grip_open'] = 0.0
+                pad['grip_close'] = 0.0
 
             payload = {"command": "CONTROL", "pad": pad}
             robot_online = False
