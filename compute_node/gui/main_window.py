@@ -7,11 +7,6 @@ from PySide6.QtGui import QPixmap
 import time
 from gui.network_worker import NetworkWorker, VideoWorker, TelemetryWorker
 
-
-# Canonical joint names — kept in sync with controller_node/core/config.JOINT_NAMES.
-# The labels here are the defaults shown before any telemetry arrives; once
-# arm_service starts publishing, each row's name is overwritten from the
-# payload's "name" field, so the controller side is the source of truth.
 DEFAULT_JOINT_NAMES = {
     0: "Base",
     1: "Shoulder L",
@@ -176,20 +171,14 @@ class MainWindow(QMainWindow):
         sb = self.txt_console.verticalScrollBar()
         sb.setValue(sb.maximum())
 
-    # ------------------------------------------------------------------ #
-    # Settings dialog
-    # ------------------------------------------------------------------ #
-
+    # settings dialog
     def open_settings(self):
         self.worker.mapping_mode = True
         dialog = SettingsDialog(self, self.worker)
         dialog.exec()
         self.worker.mapping_mode = False
 
-    # ------------------------------------------------------------------ #
-    # Virtual gamepad helpers
-    # ------------------------------------------------------------------ #
-
+    # virtual gamepad helpers
     def _vpad_axis(self, axis, value):
         self.worker.update_vpad_axis(axis, value)
 
@@ -225,10 +214,7 @@ class MainWindow(QMainWindow):
         self.target_val_labels[name] = lbl_val
         return layout
 
-    # ------------------------------------------------------------------ #
-    # Panel builders
-    # ------------------------------------------------------------------ #
-
+    # panel builders
     def _build_mode_panel(self, parent):
         group = QGroupBox("Active Control Mode")
         layout = QHBoxLayout()
@@ -328,9 +314,6 @@ class MainWindow(QMainWindow):
         sep.setStyleSheet("background-color: #333; margin-top: 5px; margin-bottom: 5px;")
         main_layout.addWidget(sep)
 
-        # Kinematic frame positions (DH origins T01/T02/T04/T06) — these are
-        # spatial points in mm, not servo names; intentionally left labelled
-        # by anatomical region rather than by joint ID.
         self.coord_labels = {}
         points = ["Shoulder", "Elbow", "Wrist", "Gripper"]
         coord_layout = QGridLayout()
@@ -358,9 +341,6 @@ class MainWindow(QMainWindow):
             lbl.setStyleSheet("color: #888; font-weight: bold;")
             layout.addWidget(lbl, 0, col)
 
-        # Each row has fixed widgets; the name label is set from
-        # DEFAULT_JOINT_NAMES initially and later overwritten by telemetry's
-        # "name" field so the controller config remains the single source of truth.
         self.servo_data = []
         for s_id in range(8):
             default_name = DEFAULT_JOINT_NAMES.get(s_id, f"ID{s_id}")
@@ -372,7 +352,7 @@ class MainWindow(QMainWindow):
                 "curr": QLabel("-- mA"),
                 "stat": QLabel("INACTIVE"),
             }
-            row_data["name"].setMinimumWidth(120)   # fits "Forearm Roll(4)" without clipping
+            row_data["name"].setMinimumWidth(120)  
             row = s_id + 1
             layout.addWidget(row_data["name"], row, 0)
             layout.addWidget(row_data["pos"],  row, 1)
@@ -460,10 +440,7 @@ class MainWindow(QMainWindow):
         group.setLayout(layout)
         parent.addWidget(group, 4)
 
-    # ------------------------------------------------------------------ #
-    # Live updates
-    # ------------------------------------------------------------------ #
-
+    # live updates
     def update_pad_status(self, pad_ok, _):
         self.status_labels["pad"].setText("Gamepad: CONNECTED" if pad_ok else "Gamepad: DISCONNECTED")
         self.status_labels["pad"].setStyleSheet(
@@ -526,8 +503,6 @@ class MainWindow(QMainWindow):
         servos = data.get("servos", [])
         if len(servos) == len(self.servo_data):
             for i, s_data in enumerate(servos):
-                # Authoritative name from the controller (falls back to the
-                # local default if for some reason the field is missing).
                 name = s_data.get("name", DEFAULT_JOINT_NAMES.get(i, f"ID{i}"))
                 self.servo_data[i]["name"].setText(f"{name}({s_data['id']})")
 
@@ -536,7 +511,6 @@ class MainWindow(QMainWindow):
                     f"{s_data['temp']} °C" if s_data['temp'] != '--' else "-- °C"
                 )
 
-                # Voltage with status colouring (3S LiPo healthy band).
                 v_str = s_data['volt']
                 if v_str != '--':
                     try:
@@ -558,8 +532,6 @@ class MainWindow(QMainWindow):
                     self.servo_data[i]["vol"].setStyleSheet("color: #888;")
                     self.servo_data[i]["vol"].setText("-- V")
 
-                # Current is already a properly-scaled mA value from arm_service
-                # (raw register × 6.5 mA/LSB, applied in the ESP32 firmware).
                 self.servo_data[i]["curr"].setText(
                     f"{s_data['curr']} mA" if s_data['curr'] != '--' else "-- mA"
                 )
@@ -582,7 +554,7 @@ class MainWindow(QMainWindow):
         bat_color = 'red' if 0 < volts < 10.5 else '#4e9a06'
         self.lbl_battery.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {bat_color};")
 
-        # Live logging
+        # live logging
         for log in data.get("logs", []):
             self.log_to_file(log)
             self.txt_console.append(log)

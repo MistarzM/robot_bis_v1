@@ -3,7 +3,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-// ---------- Display ----------
+// display 
 constexpr uint8_t SCREEN_WIDTH  = 128;
 constexpr uint8_t SCREEN_HEIGHT = 32;
 constexpr int8_t  OLED_RESET    = -1;
@@ -11,7 +11,7 @@ constexpr uint8_t OLED_I2C_ADDR = 0x3C;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// ---------- Servo bus ----------
+// servo bus 
 constexpr uint32_t SERVO_BAUD    = 1000000;
 constexpr int8_t   SERVO_RX_PIN  = 18;
 constexpr int8_t   SERVO_TX_PIN  = 19;
@@ -24,7 +24,7 @@ constexpr int   POS_MAX        = 4095;
 
 SMS_STS st;
 
-// ---------- Axes ----------
+// axes
 struct AxisProfile {
   const char* name;
   uint16_t    speed;   // ~steps/s; useful range 0..~3500 (≈ 0.088 °/s per unit)
@@ -37,16 +37,9 @@ constexpr uint8_t NUM_AXES = 8;
 const AxisProfile AXES[NUM_AXES] = {
   { "Base",            2200,   40 },   // 0  J1 yaw — whole-arm inertia
 
-  // ── Dual-drive shoulder pair ────────────────────────────────────────
-  // IDs 1 and 2 mechanically drive the SAME joint (J2 pitch). They MUST
-  // be commanded together with mirrored positions:
-  //     pos[2] = POS_MAX - pos[1]
-  // The mirror is owned by the controller (see arm_service.py). Keep
-  // these two profiles IDENTICAL or the velocity ramps will desync and
-  // the gears will fight each other.
+  // dual-drive shoulder pair 
   { "Shoulder L",      2048,   30 },   // 1  J2 pitch (paired with ID 2)
   { "Shoulder R",      2048,   30 },   // 2  J2 pitch (paired with ID 1)
-  // ────────────────────────────────────────────────────────────────────
 
   { "Elbow",           2000,   28 },   // 3  J3 pitch — single motor, longest lever
   { "Forearm Roll",    3500,  120 },   // 4  J4 roll  — paired pace with Wrist Roll
@@ -57,7 +50,7 @@ const AxisProfile AXES[NUM_AXES] = {
 
 bool servo_active[NUM_AXES] = {false};
 
-// ---------- Helpers ----------
+// helpers 
 static inline bool valid_id(int id) {
   return id >= 0 && id < (int)NUM_AXES;
 }
@@ -133,9 +126,6 @@ void print_stat() {
   }
 }
 
-// Protocol: ID-only, "<int_id>,<int_pos>\n"
-// The dual-drive shoulder is handled by the controller sending BOTH
-// "1,POS_L" and "2,POS_R" back-to-back, where POS_R = POS_MAX - POS_L.
 void handle_move(const String& data) {
   int comma = data.indexOf(',');
   if (comma <= 0) {
@@ -164,7 +154,7 @@ void handle_move(const String& data) {
   }
 }
 
-// ---------- Arduino ----------
+// arduino 
 void setup() {
   Serial.begin(115200);
   Serial1.begin(SERVO_BAUD, SERIAL_8N1, SERVO_RX_PIN, SERVO_TX_PIN);

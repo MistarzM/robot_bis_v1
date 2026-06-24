@@ -14,12 +14,10 @@ class ArmKinematics:
         """Translates user's physical hardware limits to virtual IK math limits"""
         min_phys, max_phys = config.JOINT_LIMITS.get(servo_id, (0, 4095))
         
-        # ID 1 and 3 are physically inverted via: phys = base - (virt - base)
-        # We need to solve this for virt: virt = 2*base - phys
         if servo_id in [1, 3]:
             base = config.ELBOW_DOWN_POS.get(servo_id, 2048)
-            virt_max = 2 * base - min_phys # Inverting min gives max
-            virt_min = 2 * base - max_phys # Inverting max gives min
+            virt_max = 2 * base - min_phys 
+            virt_min = 2 * base - max_phys 
             return virt_min, virt_max
             
         return min_phys, max_phys

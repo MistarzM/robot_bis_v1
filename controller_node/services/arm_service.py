@@ -9,13 +9,10 @@ from core.arm_kinematics import ArmKinematics
 from hardware.serial_link import Esp32Serial
 
 
-# Regex for parsing the ESP32 "stat" telemetry lines.
-# Format produced by the firmware (post-refactor):
-#   <Name> (ID <n>) -> Temp: <int>C | Volt: <float>V | Current: <float> mA
 _RX_ID      = re.compile(r'ID (\d+)')
 _RX_TEMP    = re.compile(r'Temp: (\d+)C')
 _RX_VOLT    = re.compile(r'Volt: ([\d.]+)V')
-_RX_CURRENT = re.compile(r'Current: ([\d.]+)\s*mA')   # tolerates "6.5 mA" and "0mA"
+_RX_CURRENT = re.compile(r'Current: ([\d.]+)\s*mA')  
 
 
 class ArmService:
@@ -54,10 +51,7 @@ class ArmService:
             for sid in range(8)
         }
 
-    # ------------------------------------------------------------------ #
-    # Helpers
-    # ------------------------------------------------------------------ #
-
+    # helpers
     def _get_local_ip(self):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -69,18 +63,6 @@ class ArmService:
             return "NO NETWORK"
 
     def _send_shoulder_pair(self, pos_l: int):
-        """Dual-drive shoulder (J2) write — owns the L/R mirror relationship.
-
-        The two motors mirror each other around their *own* calibrated home
-        positions, NOT around SERVO_MAX/2. This lets CALIB_SHOULDER_R be
-        tuned independently of CALIB_SHOULDER_L to compensate for any
-        mechanical misalignment between the two horns.
-
-        Formula:
-            delta_l = pos_l - CALIB_SHOULDER_L       # L's offset from home
-            pos_r   = CALIB_SHOULDER_R - delta_l     # R moves the opposite way
-                    = CALIB_SHOULDER_L + CALIB_SHOULDER_R - pos_l
-        """
         pos_r = config.CALIB_SHOULDER_L + config.CALIB_SHOULDER_R - int(pos_l)
         self.serial.send_command(f"1,{int(pos_l)}\n2,{int(pos_r)}\n")
 
@@ -98,9 +80,6 @@ class ArmService:
             else:
                 phys_pos[s_id] = base_val + delta
 
-        # ID 2 (Shoulder R) is derived from ID 1 (Shoulder L) — see
-        # _send_shoulder_pair() for the rationale. Both halves of the mirror
-        # use ELBOW_DOWN_POS[2] which already encodes any horn offset.
         base_1 = config.ELBOW_DOWN_POS.get(1, 2048)
         virt_pos_1 = self.kinematics.pos.get(1, base_1)
         delta_1 = virt_pos_1 - base_1
@@ -110,10 +89,6 @@ class ArmService:
         return phys_pos
 
     def _parse_stat_line(self, line: str) -> bool:
-        """Update servo_stats from one '[ESP32] <Name> (ID n) -> Temp:.. Volt:.. Current:..' line.
-
-        Returns True if the line was a telemetry line (data extracted), else False.
-        """
         if "Temp:" not in line or "Volt:" not in line:
             return False
 
@@ -137,10 +112,7 @@ class ArmService:
         })
         return True
 
-    # ------------------------------------------------------------------ #
-    # Homing
-    # ------------------------------------------------------------------ #
-
+    # homing
     def perform_homing(self):
         self.is_homing = True
         self.arm_status = "HOMING"
@@ -158,9 +130,6 @@ class ArmService:
         _, home_ee_pose = self.kinematics.get_kinematics(config.ELBOW_DOWN_POS)
         self.target_pose = list(home_ee_pose)
 
-        # Note: ID 2 (Shoulder R) is intentionally absent from this iterable —
-        # it's driven from ID 1 via _send_shoulder_pair() to keep the dual-drive
-        # mirror in one place.
         for servo_id in [0, 1, 3, 4, 5, 6, 7]:
             target = config.ELBOW_DOWN_POS.get(servo_id, 2048)
             self.kinematics.pos[servo_id] = target
@@ -179,10 +148,7 @@ class ArmService:
         print(msg_end, flush=True)
         self.sys_logs.append(msg_end)
 
-    # ------------------------------------------------------------------ #
     # ZMQ request handling
-    # ------------------------------------------------------------------ #
-
     def process_request(self, msg):
         if msg.get("command") == "GET_BOOT_LOGS":
             try:
@@ -247,10 +213,7 @@ class ArmService:
 
             return {"status": "OK"}
 
-    # ------------------------------------------------------------------ #
-    # Telemetry broadcast
-    # ------------------------------------------------------------------ #
-
+    # telemetry broadcast
     def broadcast_telemetry(self):
         if time.time() - self.last_stat_request > 1.0:
             self.serial.request_stat()
@@ -286,10 +249,7 @@ class ArmService:
         })
         self.sys_logs.clear()
 
-    # ------------------------------------------------------------------ #
-    # Main loop
-    # ------------------------------------------------------------------ #
-
+    # main loop
     def start(self):
         self.serial.connect()
         print(f"[NET] Control: {config.ZMQ_CONTROL_PORT} | Feedback: {config.ZMQ_FEEDBACK_PORT}", flush=True)
@@ -340,7 +300,7 @@ class ArmService:
                             print(line, flush=True)
                             self.sys_logs.append(line)
                         elif self._parse_stat_line(line):
-                            pass   # already updated by helper
+                            pass  
                         elif "[STAT]" not in line:
                             print(line, flush=True)
                             self.sys_logs.append(line)
@@ -350,7 +310,6 @@ class ArmService:
                 try:
                     msg = self.socket.recv_json(flags=zmq.NOBLOCK)
                     reply = self.process_request(msg)
-                    # Force positions update only during interactive control commands
                     if (not self.is_homing
                             and self.current_mode != "DRIVING"
                             and msg.get("command") == "CONTROL"):

@@ -42,7 +42,6 @@ class GamepadController:
             if h[0] == 1: return f"HAT_{i}_RIGHT"
             
         for i, a in enumerate(state['axes']):
-            # Ignorujemy gałki (0-3). Pozwalamy na mapowanie tylko triggerów (4,5)
             if i in [4, 5]: 
                 if a > 0.5: return f"AXIS_{i}_POS"
         return None

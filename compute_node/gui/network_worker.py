@@ -81,7 +81,6 @@ class NetworkWorker(QThread):
     def run(self):
         self.socket.connect(self.robot_url)
 
-        # --- NEW: Request early boot logs upon connection ---
         try:
             self.socket.send_json({"command": "GET_BOOT_LOGS"})
             reply = self.socket.recv_json()
@@ -89,7 +88,6 @@ class NetworkWorker(QThread):
                 self.boot_logs_signal.emit(reply.get("boot_logs", []))
         except Exception as e:
             print(f"[ZMQ LOG SYNC ERROR] {e}")
-        # ----------------------------------------------------
 
         while self.is_running:
             raw = self.gamepad.read_raw_state()

@@ -1,10 +1,10 @@
-# --- NETWORK SETTINGS ---
+# network settings
 ROBOT_IP = "192.168.55.109"  # hostname -I
 ZMQ_CONTROL_PORT = "5555"      
 ZMQ_VIDEO_PORT = "5556"        
 ZMQ_FEEDBACK_PORT = "5557"   
 
-# --- GAMEPAD  ---
+# gamepad
 BUTTON_MAP = {
     "CROSS": 0,
     "CIRCLE": 1,
@@ -28,7 +28,7 @@ AXIS_MAP = {
     "R2": 5
 }
 
-# --- MOVEMENT PARAMETERS ---
+# movement parameters
 LINEAR_SENSITIVITY = 2.0
 ANGULAR_SENSITIVITY = 0.02
 DEADZONE = 0.15

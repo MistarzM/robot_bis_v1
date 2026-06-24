@@ -6,7 +6,7 @@ def main():
     print("[SYSTEM] Booting UGV02 Controller Node...")
     python_bin = sys.executable
 
-    # Open log file to capture all subsystems outputs (stdout and stderr)
+    # open log file to capture all subsystems outputs (stdout and stderr)
     log_file = open("robot.log", "w", encoding="utf-8")
     log_file.write(f"[SYSTEM] Controller Node boot sequence started at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
     log_file.flush()
@@ -25,7 +25,7 @@ def main():
     try:
         while True:
             time.sleep(1)
-            # Monitor background processes
+            # monitor background processes
             if arm_process.poll() is not None or cam_process.poll() is not None or chassis_process.poll() is not None:
                 print("[CRITICAL] A subsystem crashed! Initiating emergency shutdown...")
                 break
