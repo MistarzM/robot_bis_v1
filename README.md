@@ -5,17 +5,15 @@
 [![YOLOv8](https://img.shields.io/badge/YOLOv8-Ultralytics-yellow.svg)](https://github.com/ultralytics/ultralytics)
 [![PySide6](https://img.shields.io/badge/PySide6-GUI-brightgreen.svg)](https://wiki.qt.io/Qt_for_Python)
 
-This repository contains the software and architecture overview for a custom-built, remotely controlled mobile manipulator. The project integrates a 6-DoF (Degrees of Freedom) 3D-printed robotic arm, a differential drive chassis, and an AI-powered vision module operating in real-time.
+Welcome to the repository of my engineering thesis project! This repository contains the software and architecture overview for a custom-built, remotely controlled mobile manipulator. The system integrates a 6-DoF (Degrees of Freedom) 3D-printed robotic arm, a differential drive chassis, and an AI-powered vision module operating in real-time.
 
-This project was created as part of an engineering thesis by **Michał Mistarz**.
-
-![Robot Front View](images/front_robot.jpg)
+![Robot Side View](images/side_robot.jpg)
 
 ## 🌟 Key Features
 
 *   **Custom 6-DoF Robotic Arm:** Designed in CAD, 3D printed using high-temperature PolyLite ASA filament, and powered by 8 Waveshare ST3215 serial bus servos (closed-loop).
 *   **Analytical Inverse Kinematics (IK):** Custom implementation of Pieper's decoupling method with Denavit-Hartenberg parameters, featuring singularity handling and smooth trajectory generation.
-*   **Real-Time AI Vision:** "Eye-in-hand" camera configuration rśunning YOLOv8 Nano for real-time object detection and classification.
+*   **Real-Time AI Vision:** "Eye-in-hand" camera configuration running YOLOv8 Nano for real-time object detection and classification.
 *   **Distributed Architecture:** Computations are split between a Controller Node (onboard Raspberry Pi) and a Compute Node (Operator PC) to save power and optimize AI inference.
 *   **Low-Latency Communication:** Asynchronous Wi-Fi communication utilizing ZeroMQ (REQ/REP for controls, PUB/SUB for telemetry and video).
 *   **Desktop GUI & Gamepad Control:** A fully-featured PySide6 operator station with dynamic keybinding, telemetry dashboard, and live video feed.
@@ -49,7 +47,6 @@ The software is designed as a microservices architecture using Python and ZeroMQ
 The operator station is built with **PySide6** and features a dark-mode interface. It provides full control over the robot, including XYZ cartesian positioning, joint telemetry, and AI vision overlay.
 
 ![GUI Main](images/gui_main.png)
-![YOLO Detection](images/yolo_test.png)
 
 ### Control Modes
 The system supports multiple operational modes mapped to a standard Bluetooth gamepad:
